@@ -2269,14 +2269,14 @@ function analyzeBotDecision() {
   // 'overdue' = muito acima da média (deviationRatio > 1.5)
   const is2xAboveAvg = seq2x.status === 'due' || seq2x.status === 'overdue';
   const is5xAboveAvg = seq5x.status === 'due' || seq5x.status === 'overdue';
-  const is10xOverdue = seq10x.status === 'overdue';
-  const is15xOverdue = seq15x.status === 'overdue';
-  const is20xOverdue = seq20x.status === 'overdue';
+  const is10xAboveAvg = seq10x.status === 'due' || seq10x.status === 'overdue';
+  const is15xAboveAvg = seq15x.status === 'due' || seq15x.status === 'overdue';
+  const is20xAboveAvg = seq20x.status === 'due' || seq20x.status === 'overdue';
 
   // ========================================
-  // REGRA 1: Ciclo Adaptável (10x + 15x + 20x todos overdue)
+  // REGRA 1: Ciclo Adaptável (10x + 15x + 20x todos acima da média)
   // ========================================
-  const shouldActivateCycle = is10xOverdue && is15xOverdue && is20xOverdue;
+  const shouldActivateCycle = is10xAboveAvg && is15xAboveAvg && is20xAboveAvg;
 
   // Se o ciclo estava ativo mas as condições não são mais válidas, reseta
   if (bot.adaptiveCycle.active && !shouldActivateCycle) {
@@ -2298,7 +2298,7 @@ function analyzeBotDecision() {
       bot.adaptiveCycle.currentTarget = 15; // Começa tentando 15x
       bot.adaptiveCycle.attemptsAtCurrentTarget = 0;
       bot.adaptiveCycle.totalCycleAttempts = 0;
-      console.log('[Bot] 🔄 Ciclo adaptável ATIVADO - 10x/15x/20x overdue - Começando com alvo 15x');
+      console.log('[Bot] 🔄 Ciclo adaptável ATIVADO - 10x/15x/20x acima da média - Começando com alvo 15x');
     }
 
     // Usa o alvo do ciclo adaptável
@@ -2309,10 +2309,10 @@ function analyzeBotDecision() {
     const attemptNum = bot.adaptiveCycle.attemptsAtCurrentTarget + 1;
     const maxAttempts = bot.adaptiveCycle.maxAttempts;
 
-    reasons.push(`🔥 10x/15x/20x TODOS OVERDUE`);
-    reasons.push(`10x: ${seq10x.currentStreak}/${Math.round(seq10x.avgRoundsToHit)}`);
-    reasons.push(`15x: ${seq15x.currentStreak}/${Math.round(seq15x.avgRoundsToHit)}`);
-    reasons.push(`20x: ${seq20x.currentStreak}/${Math.round(seq20x.avgRoundsToHit)}`);
+    reasons.push(`🔥 10x/15x/20x TODOS ACIMA DA MÉDIA`);
+    reasons.push(`10x: ${seq10x.currentStreak}/${Math.round(seq10x.avgRoundsToHit)} (${seq10x.status})`);
+    reasons.push(`15x: ${seq15x.currentStreak}/${Math.round(seq15x.avgRoundsToHit)} (${seq15x.status})`);
+    reasons.push(`20x: ${seq20x.currentStreak}/${Math.round(seq20x.avgRoundsToHit)} (${seq20x.status})`);
     reasons.push(`🔄 Ciclo: tentativa ${attemptNum}/${maxAttempts} → alvo ${cycleTarget}x`);
 
   // ========================================
@@ -2622,7 +2622,8 @@ async function resolveBotBet(roundMultiplier) {
   let resultText;
   if (won1 && won2) {
     resultText = 'JACKPOT';
-  } else if (won1) {
+  } else if (won1 || won2) {
+    // Parcial: uma das apostas deu lucro
     resultText = 'PARCIAL';
   } else {
     resultText = 'PERDA';
@@ -2834,7 +2835,7 @@ function renderBotHistory() {
   botElements.historyList.innerHTML = recent.map(h => {
     let resultClass = 'loss';
     if (h.won1 && h.won2) resultClass = 'win';
-    else if (h.won1) resultClass = 'partial';
+    else if (h.won1 || h.won2) resultClass = 'partial'; // Uma das apostas deu lucro
 
     return `
       <div class="history-item ${resultClass}">

@@ -432,10 +432,20 @@ export function getAdvancedStats() {
   }
 
   const sequenceAnalysis = {};
-  for (const threshold of [2, 5, 10, 15, 20]) {
-    const currentStreak = getCurrentStreak(threshold);
-    const avgRounds = probabilities[`x${threshold}`]?.avgRoundsToHit || 0;
-    const probability = probabilities[`x${threshold}`]?.probability || 0;
+  // Configuração de thresholds: key é o label (2x, 5x...), actual é o valor real usado
+  // Para 2x, usamos 2.2 como threshold real pois o cashout é ~2.10x
+  const thresholdConfigs = [
+    { key: 2, actual: 2.2 },
+    { key: 5, actual: 5 },
+    { key: 10, actual: 10 },
+    { key: 15, actual: 15 },
+    { key: 20, actual: 20 }
+  ];
+
+  for (const { key, actual } of thresholdConfigs) {
+    const currentStreak = getCurrentStreak(actual);
+    const avgRounds = probabilities[`x${key}`]?.avgRoundsToHit || 0;
+    const probability = probabilities[`x${key}`]?.probability || 0;
 
     // Quanto "atrasado" ou "adiantado" está (razão entre atual e média)
     const deviationFromAvg = avgRounds > 0 ? (currentStreak / avgRounds) : 0;
@@ -445,8 +455,9 @@ export function getAdvancedStats() {
       ? (1 - Math.pow(1 - probability / 100, currentStreak)) * 100
       : 0;
 
-    sequenceAnalysis[`below${threshold}x`] = {
-      threshold,
+    sequenceAnalysis[`below${key}x`] = {
+      threshold: key,
+      actualThreshold: actual,
       currentStreak,
       avgRoundsToHit: Number(avgRounds.toFixed(1)),
       deviationRatio: Number(deviationFromAvg.toFixed(2)),
