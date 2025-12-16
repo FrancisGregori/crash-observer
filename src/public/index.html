@@ -1,0 +1,630 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Crash Observer - Dashboard</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- Barra de Multiplicadores (Topo Fixo) -->
+  <div class="top-bar">
+    <div class="top-bar-header">
+      <h1>Crash Observer</h1>
+      <div class="status" id="status">
+        <span class="status-dot"></span>
+        <span class="status-text">Conectando...</span>
+      </div>
+    </div>
+    <div class="rounds-bar">
+      <div class="rounds-grid" id="roundsGrid"></div>
+    </div>
+  </div>
+
+  <div class="container">
+    <div class="main-layout">
+      <!-- Coluna Esquerda -->
+      <div class="left-column">
+        <!-- Última Rodada -->
+        <section class="last-round" id="lastRound">
+          <h2>Última Rodada</h2>
+          <div class="last-round-content">
+            <div class="multiplier-display" id="lastMultiplier">-</div>
+            <div class="last-round-details">
+              <div class="detail">
+                <span class="label">Apostadores</span>
+                <span class="value" id="lastPlayers">-</span>
+              </div>
+              <div class="detail">
+                <span class="label">Total Apostado</span>
+                <span class="value" id="lastTotalBet">-</span>
+              </div>
+              <div class="detail">
+                <span class="label">Total Ganho</span>
+                <span class="value" id="lastTotalWin">-</span>
+              </div>
+              <div class="detail">
+                <span class="label">Ganho da Casa</span>
+                <span class="value" id="lastHouseProfit">-</span>
+              </div>
+              <div class="detail">
+                <span class="label">Horário</span>
+                <span class="value" id="lastTime">-</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Estatísticas -->
+        <section class="stats">
+          <h2>Estatísticas Gerais</h2>
+          <div class="stats-grid">
+            <div class="stat-card">
+              <span class="stat-label">Total de Rodadas</span>
+              <span class="stat-value" id="totalRounds">-</span>
+            </div>
+            <div class="stat-card">
+              <span class="stat-label">Multiplicador Médio</span>
+              <span class="stat-value" id="avgMultiplier">-</span>
+            </div>
+            <div class="stat-card">
+              <span class="stat-label">Maior Multiplicador</span>
+              <span class="stat-value highlight-green" id="maxMultiplier">-</span>
+            </div>
+            <div class="stat-card">
+              <span class="stat-label">Menor Multiplicador</span>
+              <span class="stat-value highlight-red" id="minMultiplier">-</span>
+            </div>
+            <div class="stat-card">
+              <span class="stat-label">Média de Apostadores</span>
+              <span class="stat-value" id="avgPlayers">-</span>
+            </div>
+          </div>
+        </section>
+
+        <!-- Sequências Simples -->
+        <section class="streaks">
+          <h2>Sequências Atuais (sem atingir)</h2>
+          <div class="streaks-grid">
+            <div class="streak-card">
+              <span class="streak-label">&lt; 2x</span>
+              <span class="streak-value" id="streakBelow2x">-</span>
+              <span class="streak-avg" id="streakAvg2x">média: -</span>
+            </div>
+            <div class="streak-card">
+              <span class="streak-label">&lt; 5x</span>
+              <span class="streak-value" id="streakBelow5x">-</span>
+              <span class="streak-avg" id="streakAvg5x">média: -</span>
+            </div>
+            <div class="streak-card">
+              <span class="streak-label">&lt; 10x</span>
+              <span class="streak-value" id="streakBelow10x">-</span>
+              <span class="streak-avg" id="streakAvg10x">média: -</span>
+            </div>
+            <div class="streak-card">
+              <span class="streak-label">&lt; 15x</span>
+              <span class="streak-value" id="streakBelow15x">-</span>
+              <span class="streak-avg" id="streakAvg15x">média: -</span>
+            </div>
+            <div class="streak-card">
+              <span class="streak-label">&lt; 20x</span>
+              <span class="streak-value" id="streakBelow20x">-</span>
+              <span class="streak-avg" id="streakAvg20x">média: -</span>
+            </div>
+          </div>
+        </section>
+
+        <!-- Ganho da Casa por Período -->
+        <section class="house-profit-section">
+          <h2>Ganho da Casa por Período</h2>
+          <div class="profit-periods-grid">
+            <div class="profit-period-card">
+              <span class="period-label">Última Hora</span>
+              <span class="period-value" id="profitCurrentHour">-</span>
+              <span class="period-rounds" id="roundsCurrentHour">- rodadas</span>
+            </div>
+            <div class="profit-period-card">
+              <span class="period-label">Últimas 3 Horas</span>
+              <span class="period-value" id="profitLast3Hours">-</span>
+              <span class="period-rounds" id="roundsLast3Hours">- rodadas</span>
+            </div>
+            <div class="profit-period-card">
+              <span class="period-label">Últimas 6 Horas</span>
+              <span class="period-value" id="profitLast6Hours">-</span>
+              <span class="period-rounds" id="roundsLast6Hours">- rodadas</span>
+            </div>
+            <div class="profit-period-card">
+              <span class="period-label">Últimas 24 Horas</span>
+              <span class="period-value" id="profitLast24Hours">-</span>
+              <span class="period-rounds" id="roundsLast24Hours">- rodadas</span>
+            </div>
+            <div class="profit-period-card">
+              <span class="period-label">Total Geral</span>
+              <span class="period-value" id="profitAllTime">-</span>
+              <span class="period-rounds" id="roundsAllTime">- rodadas</span>
+            </div>
+          </div>
+        </section>
+
+        <!-- Distribuição -->
+        <section class="distribution">
+          <h2>Distribuição de Multiplicadores</h2>
+          <div class="distribution-chart" id="distributionChart"></div>
+        </section>
+
+        <!-- Análise de Horários -->
+        <section class="hourly-analysis">
+          <h2>Análise de Horários (Estratégia 2x)</h2>
+
+          <!-- Horário Atual -->
+          <div class="current-hour-box" id="currentHourBox">
+            <div class="current-hour-info">
+              <span class="current-hour-label">Horário Atual</span>
+              <span class="current-hour-value" id="currentHourValue">--:00</span>
+            </div>
+            <div class="current-hour-stats">
+              <div class="current-stat">
+                <span class="stat-label">Taxa 2x</span>
+                <span class="stat-value" id="currentHourRate">--%</span>
+              </div>
+              <div class="current-stat">
+                <span class="stat-label">vs Média</span>
+                <span class="stat-value" id="currentHourVsGlobal">--</span>
+              </div>
+              <div class="current-stat">
+                <span class="stat-label">Rodadas</span>
+                <span class="stat-value" id="currentHourRounds">--</span>
+              </div>
+            </div>
+            <div class="current-hour-recommendation" id="currentHourRecommendation">
+              Coletando dados...
+            </div>
+          </div>
+
+          <div class="global-rate-info">
+            <span>Taxa Global de Sucesso (2x):</span>
+            <strong id="globalSuccessRate">--%</strong>
+          </div>
+
+          <div class="hourly-content">
+            <div class="hourly-best">
+              <h3>Melhores Horários para 2x</h3>
+              <p class="hourly-subtitle">Maior taxa de sucesso em atingir 2x</p>
+              <div class="hourly-list" id="bestHours"></div>
+            </div>
+            <div class="hourly-worst">
+              <h3>Piores Horários para 2x</h3>
+              <p class="hourly-subtitle">Menor taxa de sucesso em atingir 2x</p>
+              <div class="hourly-list" id="worstHours"></div>
+            </div>
+          </div>
+          <div class="hourly-chart-container">
+            <h3>Taxa de Sucesso (2x) por Hora</h3>
+            <div class="hourly-chart" id="hourlyChart"></div>
+          </div>
+        </section>
+
+        <!-- Tabela Detalhada -->
+        <section class="table-section">
+          <h2>Tabela Detalhada</h2>
+          <div class="history-controls">
+            <button class="btn active" data-limit="50">Últimas 50</button>
+            <button class="btn" data-limit="100">Últimas 100</button>
+            <button class="btn" data-limit="500">Últimas 500</button>
+          </div>
+          <div class="table-wrapper">
+            <table id="roundsTable">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Horário</th>
+                  <th>Multiplicador</th>
+                  <th>Apostadores</th>
+                  <th>Total Apostado</th>
+                  <th>Total Ganho</th>
+                  <th>Ganho da Casa</th>
+                </tr>
+              </thead>
+              <tbody id="roundsTableBody"></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+
+      <!-- Coluna Direita - Análise Avançada + Simulador (lado a lado) -->
+      <div class="right-column">
+        <section class="advanced-analysis">
+          <h2>Análise Avançada</h2>
+
+          <!-- Score de Favorabilidade -->
+          <div class="favorability-section">
+            <div class="favorability-score">
+              <div class="score-circle" id="favorabilityCircle">
+                <span class="score-value" id="favorabilityScore">-</span>
+              </div>
+              <div class="score-info">
+                <span class="score-label">Score de Favorabilidade</span>
+                <span class="score-status" id="favorabilityStatus">Calculando...</span>
+              </div>
+            </div>
+            <div class="momentum-indicator">
+              <span class="momentum-label">Momentum:</span>
+              <span class="momentum-value" id="momentumStatus">-</span>
+            </div>
+          </div>
+
+          <!-- Taxas de Sucesso por Cashout -->
+          <div class="success-rates-section">
+            <h3>Taxas de Sucesso por Cashout</h3>
+            <div class="success-rates-grid" id="successRatesGrid">
+              <!-- Preenchido via JS -->
+            </div>
+          </div>
+
+          <!-- Recomendações -->
+          <div class="recommendations-section">
+            <h3>Recomendações</h3>
+            <div class="recommendations-list" id="recommendationsList">
+              <p class="loading-text">Coletando dados...</p>
+            </div>
+          </div>
+
+          <!-- Sequências com Análise -->
+          <div class="sequences-analysis">
+            <h3>Análise de Sequências</h3>
+            <div class="sequences-grid" id="sequencesAnalysisGrid">
+              <!-- Preenchido via JS -->
+            </div>
+          </div>
+
+          <!-- Probabilidades -->
+          <div class="probabilities-section">
+            <h3>Probabilidades de Multiplicadores</h3>
+            <div class="probabilities-grid" id="probabilitiesGrid">
+              <!-- Preenchido via JS -->
+            </div>
+          </div>
+
+          <!-- Padrões Detectados -->
+          <div class="patterns-section">
+            <h3>Padrões Detectados</h3>
+            <div class="patterns-grid" id="patternsGrid">
+              <!-- Preenchido via JS -->
+            </div>
+          </div>
+
+          <!-- Correlações -->
+          <div class="correlations-section">
+            <h3>Correlações</h3>
+            <div class="correlations-grid" id="correlationsGrid">
+              <!-- Preenchido via JS -->
+            </div>
+          </div>
+        </section>
+
+        <!-- Simulador de Apostas -->
+        <section class="simulator-section">
+          <div class="bot-running-badge" id="botRunningBadge">BOT ATIVO</div>
+          <h2>Simulador de Apostas</h2>
+
+          <!-- Tabs -->
+          <div class="simulator-tabs">
+            <button class="sim-tab active" data-tab="manual">Manual</button>
+            <button class="sim-tab" data-tab="bot">Bot Automático</button>
+          </div>
+
+          <!-- Tab Manual -->
+          <div class="sim-tab-content active" id="tabManual">
+            <!-- Banca -->
+            <div class="simulator-balance">
+              <div class="balance-info">
+                <span class="balance-label">Banca</span>
+                <span class="balance-value" id="simBalance">R$ 100,00</span>
+              </div>
+              <div class="balance-actions">
+                <button class="btn-sim btn-reset" id="simReset" title="Resetar banca">Resetar</button>
+              </div>
+            </div>
+
+            <!-- Formulário de Aposta -->
+            <div class="bet-form" id="betForm">
+            <div class="bet-mode-toggle">
+              <button class="bet-mode-btn active" data-mode="single">Aposta Simples</button>
+              <button class="bet-mode-btn" data-mode="double">Aposta Dupla (2x)</button>
+            </div>
+
+            <!-- Aposta Simples -->
+            <div class="bet-inputs" id="singleBetInputs">
+              <div class="bet-input-group">
+                <label>Valor da Aposta</label>
+                <div class="input-with-btns">
+                  <input type="number" id="betAmount" value="10" min="1" step="1">
+                  <div class="quick-btns">
+                    <button class="quick-btn" data-mult="0.5">½</button>
+                    <button class="quick-btn" data-mult="2">2x</button>
+                    <button class="quick-btn" data-set="max">MAX</button>
+                  </div>
+                </div>
+              </div>
+              <div class="bet-input-group">
+                <label>Auto Cashout</label>
+                <div class="input-with-btns">
+                  <input type="number" id="betCashout" value="2.00" min="1.01" step="0.01">
+                  <div class="quick-btns">
+                    <button class="quick-btn" data-cashout="1.5">1.5x</button>
+                    <button class="quick-btn" data-cashout="2">2x</button>
+                    <button class="quick-btn" data-cashout="3">3x</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Aposta Dupla -->
+            <div class="bet-inputs hidden" id="doubleBetInputs">
+              <div class="double-bet-info">
+                <p>Estratégia: 2 apostas iguais</p>
+                <p>• Aposta 1: Cashout em ~2.17x (tempo de reação)</p>
+                <p>• Aposta 2: Cashout configurável (lucro)</p>
+              </div>
+              <div class="bet-input-group">
+                <label>Valor por Aposta</label>
+                <div class="input-with-btns">
+                  <input type="number" id="betAmountDouble" value="5" min="1" step="1">
+                  <div class="quick-btns">
+                    <button class="quick-btn" data-mult="0.5">½</button>
+                    <button class="quick-btn" data-mult="2">2x</button>
+                  </div>
+                </div>
+              </div>
+              <div class="bet-input-group">
+                <label>Cashout Aposta 2</label>
+                <div class="input-with-btns">
+                  <input type="number" id="betCashout2" value="5.00" min="2.01" step="0.01">
+                  <div class="quick-btns">
+                    <button class="quick-btn" data-cashout2="3">3x</button>
+                    <button class="quick-btn" data-cashout2="5">5x</button>
+                    <button class="quick-btn" data-cashout2="10">10x</button>
+                  </div>
+                </div>
+              </div>
+              <div class="double-bet-total">
+                Total: <span id="doubleBetTotal">R$ 10,00</span>
+              </div>
+            </div>
+
+            <button class="btn-bet" id="placeBetBtn">Apostar</button>
+          </div>
+
+          <!-- Aposta Ativa -->
+          <div class="active-bet hidden" id="activeBet">
+            <div class="active-bet-header">
+              <span class="active-bet-label">Aposta Ativa</span>
+              <span class="active-bet-status" id="activeBetStatus">Aguardando...</span>
+            </div>
+            <div class="active-bet-details" id="activeBetDetails">
+              <!-- Preenchido via JS -->
+            </div>
+            <button class="btn-cancel" id="cancelBetBtn">Cancelar Aposta</button>
+          </div>
+
+          <!-- Estatísticas -->
+          <div class="sim-stats">
+            <h3>Estatísticas</h3>
+            <div class="sim-stats-grid">
+              <div class="sim-stat">
+                <span class="sim-stat-label">Apostas</span>
+                <span class="sim-stat-value" id="simTotalBets">0</span>
+              </div>
+              <div class="sim-stat">
+                <span class="sim-stat-label">Vitórias</span>
+                <span class="sim-stat-value" id="simWins">0 (0%)</span>
+              </div>
+              <div class="sim-stat">
+                <span class="sim-stat-label">Lucro</span>
+                <span class="sim-stat-value" id="simProfit">R$ 0,00</span>
+              </div>
+              <div class="sim-stat">
+                <span class="sim-stat-label">ROI</span>
+                <span class="sim-stat-value" id="simROI">0%</span>
+              </div>
+            </div>
+          </div>
+
+            <!-- Histórico de Apostas -->
+            <div class="sim-history">
+              <h3>Histórico</h3>
+              <div class="sim-history-list" id="simHistoryList">
+                <p class="no-history">Nenhuma aposta ainda</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Tab Bot Automático -->
+          <div class="sim-tab-content" id="tabBot">
+            <!-- Status do Bot -->
+            <div class="bot-status-bar">
+              <div class="bot-status-indicator" id="botStatusIndicator">
+                <span class="bot-status-dot"></span>
+                <span class="bot-status-text" id="botStatusText">Desativado</span>
+              </div>
+              <div class="bot-account-type" id="botAccountType">
+                <span class="account-icon">🎮</span>
+                <span class="account-label" id="botAccountLabel">Conta Fictícia</span>
+              </div>
+              <button class="btn-bot-toggle" id="botToggle">Ativar Bot</button>
+            </div>
+
+            <!-- Banca do Bot -->
+            <div class="simulator-balance bot-balance">
+              <div class="balance-info">
+                <span class="balance-label">Banca do Bot</span>
+                <div class="balance-editable">
+                  <span class="balance-value" id="botBalance">R$ 100,00</span>
+                  <div class="balance-edit-group hidden" id="balanceEditGroup">
+                    <span class="balance-prefix">R$</span>
+                    <input type="number" id="botBalanceInput" value="100" min="0" step="0.01">
+                    <button class="btn-balance-save" id="botBalanceSave">OK</button>
+                  </div>
+                  <button class="btn-balance-edit" id="botBalanceEdit" title="Editar banca">✏️</button>
+                </div>
+              </div>
+              <div class="balance-actions">
+                <button class="btn-sim btn-sessions" id="botSessionsBtn" title="Ver sessões anteriores">Histórico</button>
+                <button class="btn-sim btn-reset" id="botReset" title="Arquivar e resetar">Resetar</button>
+              </div>
+            </div>
+
+            <!-- Decisão Atual do Bot -->
+            <div class="bot-decision" id="botDecision">
+              <h3>Análise Atual</h3>
+              <div class="bot-decision-content" id="botDecisionContent">
+                <p class="bot-waiting">Aguardando ativação...</p>
+              </div>
+            </div>
+
+            <!-- Aposta Ativa do Bot -->
+            <div class="bot-active-bet hidden" id="botActiveBet">
+              <div class="active-bet-header">
+                <span class="active-bet-label">Aposta do Bot</span>
+                <span class="active-bet-status" id="botBetStatus">Aguardando...</span>
+              </div>
+              <div class="bot-bet-details" id="botBetDetails">
+                <!-- Preenchido via JS -->
+              </div>
+            </div>
+
+            <!-- Estatísticas do Bot -->
+            <div class="sim-stats bot-stats">
+              <h3>Estatísticas do Bot</h3>
+              <div class="sim-stats-grid">
+                <div class="sim-stat">
+                  <span class="sim-stat-label">Apostas</span>
+                  <span class="sim-stat-value" id="botTotalBets">0</span>
+                </div>
+                <div class="sim-stat">
+                  <span class="sim-stat-label">Vitórias</span>
+                  <span class="sim-stat-value" id="botWins">0 (0%)</span>
+                </div>
+                <div class="sim-stat">
+                  <span class="sim-stat-label">Lucro</span>
+                  <span class="sim-stat-value" id="botProfit">R$ 0,00</span>
+                </div>
+                <div class="sim-stat">
+                  <span class="sim-stat-label">ROI</span>
+                  <span class="sim-stat-value" id="botROI">0%</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Histórico do Bot -->
+            <div class="sim-history bot-history">
+              <h3>Histórico do Bot</h3>
+              <div class="sim-history-list" id="botHistoryList">
+                <p class="no-history">Nenhuma aposta ainda</p>
+              </div>
+            </div>
+
+            <!-- Configuração do Bot (Collapsível) -->
+            <div class="bot-config-section collapsible" id="botConfigSection">
+              <div class="config-header" id="configToggle">
+                <h3>Configurações</h3>
+                <span class="config-toggle-icon">▼</span>
+              </div>
+              <div class="config-body" id="configBody">
+                <!-- Modo de Conta -->
+                <div class="live-mode-section" id="liveModeSection">
+                  <div class="live-mode-toggle">
+                    <label class="toggle-switch">
+                      <input type="checkbox" id="liveModeToggle">
+                      <span class="toggle-slider"></span>
+                    </label>
+                    <span class="live-mode-label" id="liveModeLabel">Usar Conta Real</span>
+                  </div>
+                  <div class="live-mode-warning hidden" id="liveModeWarning">
+                    <span class="warning-icon">⚠️</span>
+                    <span class="warning-text">Apostas com dinheiro real!</span>
+                  </div>
+                </div>
+
+                <!-- Valor de Aposta -->
+                <div class="bot-config-single">
+                  <div class="bot-config-item">
+                    <label for="botBetAmount">Valor por Aposta (R$)</label>
+                    <div class="config-input-group">
+                      <input type="number" id="botBetAmount" value="10" min="1" max="1000" step="1">
+                      <div class="config-quick-btns">
+                        <button class="config-quick-btn" data-amount="1">1</button>
+                        <button class="config-quick-btn" data-amount="2">2</button>
+                        <button class="config-quick-btn" data-amount="5">5</button>
+                        <button class="config-quick-btn" data-amount="10">10</button>
+                        <button class="config-quick-btn" data-amount="20">20</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div class="bot-config-summary">
+                  <div class="config-summary-row">
+                    <span>Total por rodada:</span>
+                    <strong id="botTotalPerRound">R$ 20,00</strong>
+                  </div>
+                  <div class="config-summary-row muted">
+                    <span>Cashouts:</span>
+                    <span>Automático (~2.10x + 5.10x~15x)</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Regras do Bot -->
+            <div class="bot-rules collapsible">
+              <div class="rules-header" id="rulesToggle">
+                <h3>Regras da Estratégia</h3>
+                <span class="rules-toggle-icon">▼</span>
+              </div>
+              <div class="bot-rules-list" id="rulesBody">
+                <div class="bot-rule">
+                  <span class="rule-icon">💰</span>
+                  <span class="rule-text">2 apostas por rodada (valores acima)</span>
+                </div>
+                <div class="bot-rule">
+                  <span class="rule-icon">🎯</span>
+                  <span class="rule-text">Aposta 1: Saída rápida (~2.10x)</span>
+                </div>
+                <div class="bot-rule">
+                  <span class="rule-icon">🚀</span>
+                  <span class="rule-text">Aposta 2: Alvo de lucro automático</span>
+                </div>
+                <div class="bot-rule">
+                  <span class="rule-icon">📊</span>
+                  <span class="rule-text">Só entra se 2x ou 5x estiver próximo/atrasado</span>
+                </div>
+                <div class="bot-rule">
+                  <span class="rule-icon">⚡</span>
+                  <span class="rule-text">Se 10x/15x/20x muito atrasados: busca 10x+</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal de Sessões Arquivadas -->
+  <div class="sessions-modal" id="sessionsModal">
+    <div class="sessions-modal-content">
+      <div class="sessions-modal-header">
+        <h2>Sessões Arquivadas</h2>
+        <button class="sessions-close-btn" id="sessionsClose">&times;</button>
+      </div>
+      <div class="sessions-modal-body">
+        <div class="sessions-list" id="sessionsList">
+          <!-- Preenchido via JS -->
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
