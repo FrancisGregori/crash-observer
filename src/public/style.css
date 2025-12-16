@@ -2578,6 +2578,180 @@ tr:hover td {
   }
 }
 
+/* ========== Data Management ========== */
+.stats-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.stats-header h2 {
+  margin: 0;
+}
+
+.btn-data-manage {
+  background: var(--bg-secondary);
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  transition: all 0.2s;
+}
+
+.btn-data-manage:hover {
+  background: var(--accent);
+  color: white;
+}
+
+.data-actions {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.data-actions .btn {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 12px;
+  font-size: 0.85rem;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.data-actions .btn-icon {
+  font-size: 1.5rem;
+}
+
+.btn-archive {
+  background: var(--bg-secondary);
+  border: 1px solid var(--accent);
+  color: var(--accent);
+}
+
+.btn-archive:hover {
+  background: var(--accent);
+  color: white;
+}
+
+.btn-reset-db {
+  background: var(--bg-secondary);
+  border: 1px solid var(--orange);
+  color: var(--orange);
+}
+
+.btn-reset-db:hover {
+  background: var(--orange);
+  color: white;
+}
+
+.archives-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.archive-card {
+  background: var(--bg-primary);
+  border-radius: 8px;
+  padding: 12px;
+  border: 1px solid var(--bg-secondary);
+}
+
+.archive-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.archive-name {
+  flex: 1;
+  font-weight: 600;
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  word-break: break-all;
+}
+
+.archive-delete-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 1.2rem;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+  transition: color 0.2s;
+}
+
+.archive-delete-btn:hover {
+  color: var(--red);
+}
+
+.archive-info {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+}
+
+.archive-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.archive-actions .btn {
+  flex: 1;
+  padding: 6px 10px;
+  font-size: 0.75rem;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-merge {
+  background: var(--green);
+  border: none;
+  color: white;
+}
+
+.btn-merge:hover {
+  background: #1a9850;
+}
+
+.btn-restore {
+  background: var(--bg-secondary);
+  border: 1px solid var(--accent);
+  color: var(--accent);
+}
+
+.btn-restore:hover {
+  background: var(--accent);
+  color: white;
+}
+
+.no-archives {
+  text-align: center;
+  padding: 20px;
+  color: var(--text-muted);
+}
+
+.no-archives span {
+  font-size: 2rem;
+  display: block;
+  margin-bottom: 8px;
+}
+
 /* ========== Balance Editable ========== */
 .balance-editable {
   display: flex;
@@ -2858,4 +3032,234 @@ tr:hover td {
 .simulator-section.bot-running.live-mode .bot-balance {
   border-color: var(--green);
   background: linear-gradient(135deg, var(--bg-card) 0%, #1a2e1a 100%);
+}
+
+/* ========== Multi-Bot UI ========== */
+
+/* Estatísticas Combinadas */
+.combined-stats {
+  background: linear-gradient(135deg, var(--bg-card) 0%, #1a2a3a 100%);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 12px;
+  display: flex;
+  justify-content: space-around;
+  gap: 20px;
+}
+
+.combined-stats-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+}
+
+.combined-stats-row span {
+  color: var(--text-secondary);
+}
+
+.combined-stats-row strong {
+  color: var(--text-primary);
+  font-size: 1rem;
+}
+
+/* Abas de Seleção de Bot */
+.bot-selector-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.bot-tab {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 16px;
+  background: var(--bg-card);
+  border: 2px solid transparent;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  color: var(--text-secondary);
+}
+
+.bot-tab:hover {
+  background: #2a2a2a;
+  border-color: var(--bg-secondary);
+}
+
+.bot-tab.active {
+  background: linear-gradient(135deg, var(--bg-card) 0%, #1a1a3a 100%);
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+
+.bot-tab-name {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.bot-tab-balance {
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+.bot-tab.active .bot-tab-balance {
+  color: var(--accent);
+}
+
+.bot-tab-status {
+  font-size: 0.7rem;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: transparent;
+}
+
+.bot-tab-status.running {
+  background: var(--green);
+  color: white;
+}
+
+.bot-tab-status.live {
+  background: var(--orange);
+  color: white;
+}
+
+/* Painéis de Bot */
+.bot-panel {
+  display: none;
+}
+
+.bot-panel.active {
+  display: block;
+}
+
+/* Grupos de Configuração com Toggle */
+.config-group {
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  margin-bottom: 10px;
+  overflow: hidden;
+}
+
+.config-group-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: #1f1f1f;
+  cursor: pointer;
+}
+
+.config-group-title {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.config-group-body {
+  padding: 12px;
+  border-top: 1px solid var(--bg-card);
+}
+
+.config-group-body.disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.config-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.config-row label {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  min-width: 100px;
+}
+
+.config-row input[type="number"] {
+  width: 70px;
+  padding: 6px 8px;
+  background: var(--bg-card);
+  border: 1px solid #333;
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: 0.85rem;
+}
+
+.config-row.triple {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+.config-col {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.config-col label {
+  min-width: auto;
+  font-size: 0.75rem;
+}
+
+.config-col input[type="number"] {
+  width: 100%;
+}
+
+/* Toggle Switch Small */
+.toggle-switch.small {
+  width: 36px;
+  height: 20px;
+}
+
+.toggle-switch.small .toggle-slider:before {
+  height: 14px;
+  width: 14px;
+  left: 3px;
+  bottom: 3px;
+}
+
+.toggle-switch.small input:checked + .toggle-slider:before {
+  transform: translateX(16px);
+}
+
+/* Quick Buttons Small */
+.config-quick-btns.small {
+  gap: 4px;
+}
+
+.config-quick-btns.small .config-quick-btn {
+  padding: 4px 8px;
+  font-size: 0.7rem;
+}
+
+/* Toast Notification */
+.toast-notification {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%) translateY(100px);
+  background: var(--bg-card);
+  border: 1px solid var(--accent);
+  color: var(--text-primary);
+  padding: 12px 24px;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  z-index: 10000;
+  opacity: 0;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+}
+
+.toast-notification.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
 }

@@ -6,6 +6,10 @@ let houseProfitData = {};
 let advancedStats = {};
 let currentLimit = 50;
 
+// ========== Conexão com Observer ==========
+let observerApiUrl = '';
+let ws = null;
+
 // ========== Estado do Simulador ==========
 const SIMULATOR_STORAGE_KEY = 'crash_simulator_state';
 
@@ -441,7 +445,7 @@ function renderTable() {
  */
 async function fetchRounds() {
   try {
-    const response = await fetch(`/api/rounds?limit=${currentLimit}`);
+    const response = await fetch(`${observerApiUrl}/api/rounds?limit=${currentLimit}`);
     rounds = await response.json();
     renderRoundsGrid();
     renderTable();
@@ -458,7 +462,7 @@ async function fetchRounds() {
  */
 async function fetchStats() {
   try {
-    const response = await fetch('/api/stats');
+    const response = await fetch(`${observerApiUrl}/api/stats`);
     stats = await response.json();
     renderStats();
     renderDistribution();
@@ -472,7 +476,7 @@ async function fetchStats() {
  */
 async function fetchHourlyAnalysis() {
   try {
-    const response = await fetch('/api/hourly');
+    const response = await fetch(`${observerApiUrl}/api/hourly`);
     hourlyData = await response.json();
     renderHourlyAnalysis();
   } catch (err) {
@@ -485,7 +489,7 @@ async function fetchHourlyAnalysis() {
  */
 async function fetchHouseProfit() {
   try {
-    const response = await fetch('/api/house-profit');
+    const response = await fetch(`${observerApiUrl}/api/house-profit`);
     houseProfitData = await response.json();
     renderHouseProfit();
   } catch (err) {
@@ -498,7 +502,7 @@ async function fetchHouseProfit() {
  */
 async function fetchAdvancedStats() {
   try {
-    const response = await fetch('/api/advanced');
+    const response = await fetch(`${observerApiUrl}/api/advanced`);
     advancedStats = await response.json();
     console.log('[DEBUG] advancedStats:', advancedStats);
     renderAdvancedStats();
@@ -1150,59 +1154,72 @@ function setupSimulatorEvents() {
   elements.betAmountDouble.addEventListener('input', updateDoubleBetTotal);
 }
 
-// ========== Server-Sent Events ==========
+// ========== WebSocket Connection ==========
 
 /**
- * Conecta ao stream de eventos SSE
+ * Conecta ao WebSocket do Observer
  */
-function connectSSE() {
-  const eventSource = new EventSource('/api/events');
+function connectWebSocket(url) {
+  ws = new WebSocket(url);
 
-  eventSource.addEventListener('connected', () => {
-    console.log('SSE conectado');
+  ws.onopen = () => {
+    console.log('[WS] Conectado ao Observer');
     updateStatus('connected', 'Conectado');
-  });
+  };
 
-  eventSource.addEventListener('round', (event) => {
-    const round = JSON.parse(event.data);
-    console.log('Nova rodada recebida:', round);
+  ws.onmessage = (event) => {
+    const message = JSON.parse(event.data);
+    const { type, data } = message;
 
-    // Adiciona no início do array
-    rounds.unshift(round);
+    switch (type) {
+      case 'connected':
+        console.log('[WS] Mensagem de conexão:', data.message);
+        break;
 
-    // Atualiza UI
-    renderLastRound(round);
-    renderRoundsGrid(true);
-    renderTable();
+      case 'round':
+        console.log('[WS] Nova rodada recebida:', data);
+        // Adiciona no início do array
+        rounds.unshift(data);
 
-    // Resolve aposta ativa do simulador manual
-    if (simulator.activeBet) {
-      resolveActiveBet(round.multiplier);
+        // Atualiza UI
+        renderLastRound(data);
+        renderRoundsGrid(true);
+        renderTable();
+
+        // Resolve aposta ativa do simulador manual
+        if (simulator.activeBet) {
+          resolveActiveBet(data.multiplier);
+        }
+
+        // Processa rodada no bot automático
+        processBotRound(data);
+
+        // Atualiza estatísticas
+        fetchStats();
+        fetchHourlyAnalysis();
+        fetchHouseProfit();
+        fetchAdvancedStats();
+        break;
+
+      case 'liveBet':
+        handleLiveBetEvent(data);
+        break;
+
+      case 'betting_phase':
+        console.log('[WS] Fase de apostas:', data);
+        break;
     }
+  };
 
-    // Processa rodada no bot automático
-    processBotRound(round);
-
-    // Atualiza estatísticas, análise de horários, ganho da casa e análise avançada
-    fetchStats();
-    fetchHourlyAnalysis();
-    fetchHouseProfit();
-    fetchAdvancedStats();
-  });
-
-  // Eventos de live betting
-  eventSource.addEventListener('liveBet', (event) => {
-    const liveBetEvent = JSON.parse(event.data);
-    handleLiveBetEvent(liveBetEvent);
-  });
-
-  eventSource.onerror = () => {
-    console.error('Erro no SSE, reconectando...');
+  ws.onclose = () => {
+    console.log('[WS] Desconectado, reconectando em 3s...');
     updateStatus('disconnected', 'Desconectado');
-    eventSource.close();
+    setTimeout(() => connectWebSocket(url), 3000);
+  };
 
-    // Tenta reconectar após 3 segundos
-    setTimeout(connectSSE, 3000);
+  ws.onerror = (error) => {
+    console.error('[WS] Erro:', error);
+    updateStatus('disconnected', 'Erro de conexão');
   };
 }
 
@@ -1278,6 +1295,23 @@ async function init() {
   // Carrega estado do simulador
   loadSimulatorState();
 
+  // Busca configuração do Observer
+  try {
+    const configResponse = await fetch('/api/config');
+    const config = await configResponse.json();
+    observerApiUrl = config.observerApiUrl;
+    console.log('[Config] Observer API:', observerApiUrl);
+    console.log('[Config] Observer WS:', config.observerWsUrl);
+
+    // Conecta ao WebSocket do Observer
+    connectWebSocket(config.observerWsUrl);
+  } catch (err) {
+    console.error('[Config] Erro ao buscar config, tentando conexão local...');
+    // Fallback para conexão local (quando rodando tudo junto)
+    observerApiUrl = '';
+    connectWebSocket('ws://localhost:3001');
+  }
+
   // Carrega dados iniciais
   await Promise.all([
     fetchRounds(),
@@ -1286,9 +1320,6 @@ async function init() {
     fetchHouseProfit(),
     fetchAdvancedStats()
   ]);
-
-  // Configura SSE para atualizações em tempo real
-  connectSSE();
 
   // Configura botões
   setupLimitButtons();
@@ -1317,61 +1348,469 @@ async function init() {
   // Configura bot
   setupBotEvents();
   loadBotState();
+  loadBotRiskState();
   renderBot();
 }
 
-// ========== BOT AUTOMÁTICO ==========
+// ========== BOT AUTOMÁTICO - SISTEMA MULTI-BOT ==========
 
-const BOT_STORAGE_KEY = 'crash_bot_state';
-const BOT_SESSIONS_KEY = 'crash_bot_sessions';
-
-// Estado do bot
-let bot = {
-  active: false,
-  balance: 100,
-  initialBalance: 100,
-  activeBet: null,
-  history: [],
-  stats: {
-    totalBets: 0,
-    wins: 0,
-    losses: 0,
-    totalWagered: 0,
-    totalProfit: 0
+// Chaves de storage por bot
+const STORAGE_KEYS = {
+  bot1: {
+    state: 'crash_bot1_state',
+    config: 'crash_bot1_config',
+    riskState: 'crash_bot1_risk_state',
+    sessions: 'crash_bot1_sessions'
   },
-  lastDecision: null,
-  liveMode: true, // Modo de apostas reais - padrão é conta real
-  isProcessing: false, // Flag para evitar processamento duplo
-  lastRoundTime: 0, // Timestamp da última rodada processada
-  // Ciclo adaptável para cashouts altos (15x/10x)
-  adaptiveCycle: {
-    active: false,           // Se o ciclo adaptável está ativo
-    currentTarget: 15,       // Alvo atual (15 ou 10)
-    attemptsAtCurrentTarget: 0, // Quantas tentativas no alvo atual
-    maxAttempts: 3,          // Máximo de tentativas antes de mudar
-    totalCycleAttempts: 0,   // Total de tentativas no ciclo
-    lastHitTarget: null      // Último alvo que acertou
+  bot2: {
+    state: 'crash_bot2_state',
+    config: 'crash_bot2_config',
+    riskState: 'crash_bot2_risk_state',
+    sessions: 'crash_bot2_sessions'
   }
 };
 
-// Configuração de timing
+// Bot atualmente selecionado na UI
+let activeBotTab = 'bot1';
+
+// Factory: Cria estado inicial do bot
+function createBotState(botId) {
+  return {
+    botId,
+    active: false,
+    balance: 100,
+    initialBalance: 100,
+    activeBet: null,
+    history: [],
+    stats: {
+      totalBets: 0,
+      wins: 0,
+      losses: 0,
+      totalWagered: 0,
+      totalProfit: 0
+    },
+    lastDecision: null,
+    liveMode: false, // Default: modo teste (simulação)
+    isProcessing: false,
+    lastRoundTime: 0,
+    adaptiveCycle: {
+      active: false,
+      currentTarget: 15,
+      attemptsAtCurrentTarget: 0,
+      maxAttempts: 3,
+      totalCycleAttempts: 0,
+      lastHitTarget: null
+    }
+  };
+}
+
+// Factory: Cria configuração do bot
+function createBotConfig(botId) {
+  return {
+    botId,
+    betAmount: 10,
+    cashout1: 2.0,
+    cashout2Default: 5.10,
+    cashout2Medium: 7.0,
+    cashout2High: 10.0,
+    cashout2VeryHigh: 15.0,
+    // Gestão de Banca (configurável)
+    bankrollManagement: {
+      enabled: true,
+      maxBetPercent: 5
+    },
+    // Stop-Loss (configurável)
+    stopLoss: {
+      enabled: true,
+      percent: 30
+    },
+    // Take-Profit (configurável)
+    takeProfit: {
+      enabled: true,
+      percent: 50
+    },
+    // Cashout Dinâmico (configurável)
+    dynamicCashout: {
+      enabled: true,
+      conservative: 1.50,
+      normal: 2.0,
+      aggressive: 2.20
+    }
+  };
+}
+
+// Factory: Cria estado de risco do bot (sem recovery mode)
+function createBotRiskState(botId) {
+  return {
+    botId,
+    sessionStartBalance: 100,
+    consecutiveLosses: 0,
+    consecutiveWins: 0,
+    isPaused: false,
+    pauseRoundsRemaining: 0,
+    sessionProfit: 0,
+    lastResults: [],
+    totalSessionBets: 0,
+    sessionWins: 0,
+    stopLossTriggered: false,
+    takeProfitTriggered: false
+  };
+}
+
+// Container principal dos bots
+const bots = {
+  bot1: {
+    state: createBotState('bot1'),
+    config: createBotConfig('bot1'),
+    riskState: createBotRiskState('bot1')
+  },
+  bot2: {
+    state: createBotState('bot2'),
+    config: createBotConfig('bot2'),
+    riskState: createBotRiskState('bot2')
+  }
+};
+
+// Configurações globais de risco (valores default, não mais usados diretamente)
+const RISK_CONFIG = {
+  minBetAmount: 2,
+  maxConsecutiveLosses: 5,
+  pauseRoundsAfterMaxLosses: 3,
+  coldMomentumReduction: 0.7,
+  hotMomentumIncrease: 1.0
+};
+
+// Configuração de timing (global para ambos bots)
 const BOT_TIMING = {
-  delayAfterRound: 2000, // 2 segundos de espera após rodada terminar
-  minTimeBetweenBets: 5000 // Mínimo 5 segundos entre apostas
+  delayAfterRound: 2000,
+  minTimeBetweenBets: 5000
 };
 
-// Configurações do bot (valores padrão, serão sobrescritos pelo localStorage)
-const BOT_CONFIG = {
-  betAmount: 10,          // R$10 por aposta
-  cashout1: 2.17,         // Primeira aposta sai em 2.17x
-  cashout2Default: 5.10,  // Segunda aposta sai em 5.10x por padrão
-  cashout2High: 10.0,     // Segunda aposta sai em 10x se sequências muito atrasadas
-  cashout2VeryHigh: 15.0  // Segunda aposta sai em 15x se sequências extremamente atrasadas
-};
+// Aliases para compatibilidade (apontam para bot1 por padrão)
+let bot = bots.bot1.state;
+let botRiskState = bots.bot1.riskState;
+const BOT_CONFIG = bots.bot1.config;
 
-const BOT_CONFIG_STORAGE_KEY = 'crash_bot_config';
+/**
+ * Carrega estado de risco do localStorage para um bot específico
+ */
+function loadBotRiskState(botId = 'bot1') {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEYS[botId].riskState);
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      bots[botId].riskState = { ...createBotRiskState(botId), ...parsed, botId };
+      console.log(`[Risk ${botId}] Estado carregado:`, bots[botId].riskState);
+    }
+  } catch (e) {
+    console.error(`[Risk ${botId}] Erro ao carregar estado:`, e);
+  }
+}
 
-// Elementos DOM do bot
+/**
+ * Salva estado de risco no localStorage para um bot específico
+ */
+function saveBotRiskState(botId = 'bot1') {
+  try {
+    localStorage.setItem(STORAGE_KEYS[botId].riskState, JSON.stringify(bots[botId].riskState));
+  } catch (e) {
+    console.error(`[Risk ${botId}] Erro ao salvar estado:`, e);
+  }
+}
+
+/**
+ * Reseta estado de risco (nova sessão) para um bot específico
+ */
+function resetBotRiskState(botId = 'bot1') {
+  const botState = bots[botId].state;
+  bots[botId].riskState = {
+    botId,
+    sessionStartBalance: botState.balance,
+    consecutiveLosses: 0,
+    consecutiveWins: 0,
+    isPaused: false,
+    pauseRoundsRemaining: 0,
+    sessionProfit: 0,
+    lastResults: [],
+    totalSessionBets: 0,
+    sessionWins: 0,
+    stopLossTriggered: false,
+    takeProfitTriggered: false
+  };
+  saveBotRiskState(botId);
+  console.log(`[Risk ${botId}] Estado resetado para nova sessão`);
+}
+
+/**
+ * Calcula o tamanho ideal da aposta baseado em múltiplos fatores
+ */
+function calculateOptimalBetSize(botId = 'bot1') {
+  const botData = bots[botId];
+  const botState = botData.state;
+  const botConfig = botData.config;
+  const riskState = botData.riskState;
+
+  const baseAmount = botConfig.betAmount;
+  let multiplier = 1.0;
+  const reasons = [];
+
+  // 1. Limite por % do saldo (Kelly-inspired) - só se gestão de banca ativa
+  if (botConfig.bankrollManagement.enabled) {
+    const maxByBalance = (botState.balance * botConfig.bankrollManagement.maxBetPercent / 100) / 2;
+    if (baseAmount > maxByBalance && maxByBalance >= RISK_CONFIG.minBetAmount) {
+      multiplier = maxByBalance / baseAmount;
+      reasons.push(`Ajuste por saldo: ${(multiplier * 100).toFixed(0)}%`);
+    }
+  }
+
+  // 2. Ajuste por momentum (se disponível)
+  if (advancedStats && advancedStats.momentum) {
+    const momentum = advancedStats.momentum.momentumStatus;
+    if (momentum === 'cold') {
+      multiplier *= RISK_CONFIG.coldMomentumReduction;
+      reasons.push(`Momentum frio: ${(RISK_CONFIG.coldMomentumReduction * 100).toFixed(0)}%`);
+    }
+  }
+
+  // 3. Ajuste por perdas consecutivas (gradual)
+  if (riskState.consecutiveLosses >= 2) {
+    const lossAdjust = Math.max(0.5, 1 - (riskState.consecutiveLosses - 1) * 0.15);
+    multiplier *= lossAdjust;
+    reasons.push(`Perdas consecutivas (${riskState.consecutiveLosses}): ${(lossAdjust * 100).toFixed(0)}%`);
+  }
+
+  // Calcula valor final
+  let finalAmount = Math.max(
+    RISK_CONFIG.minBetAmount,
+    Math.round(baseAmount * multiplier * 100) / 100
+  );
+
+  // Garante que não exceda o saldo disponível
+  const maxAffordable = Math.floor(botState.balance / 2 * 100) / 100;
+  if (finalAmount > maxAffordable) {
+    finalAmount = maxAffordable;
+    reasons.push(`Limitado pelo saldo disponível`);
+  }
+
+  return {
+    amount: finalAmount,
+    multiplier,
+    reasons,
+    isReduced: multiplier < 1.0
+  };
+}
+
+/**
+ * Calcula o primeiro cashout baseado em condições
+ */
+function calculateOptimalCashout1(botId = 'bot1') {
+  const botData = bots[botId];
+  const botConfig = botData.config;
+  const riskState = botData.riskState;
+
+  // Se cashout dinâmico desativado, usa o normal fixo
+  if (!botConfig.dynamicCashout.enabled) {
+    const randomized = randomizeCashout(botConfig.dynamicCashout.normal, 0.01, 0.05);
+    return {
+      cashout: randomized,
+      base: botConfig.dynamicCashout.normal,
+      reason: 'Fixo (dinâmico desativado)'
+    };
+  }
+
+  let baseCashout = botConfig.dynamicCashout.normal;
+  let reason = 'Normal';
+
+  // Após perdas consecutivas, ser mais conservador
+  if (riskState.consecutiveLosses >= 2) {
+    baseCashout = botConfig.dynamicCashout.conservative;
+    reason = 'Conservador (após perdas)';
+  }
+  // Após vitórias consecutivas, pode ser um pouco mais agressivo
+  else if (riskState.consecutiveWins >= 3) {
+    baseCashout = botConfig.dynamicCashout.aggressive;
+    reason = 'Agressivo (sequência positiva)';
+  }
+
+  // Randomiza levemente (±0.05)
+  const variance = baseCashout === botConfig.dynamicCashout.normal ? 0.05 : 0.03;
+  const randomized = randomizeCashout(baseCashout, 0.01, variance);
+
+  return {
+    cashout: randomized,
+    base: baseCashout,
+    reason
+  };
+}
+
+/**
+ * Verifica se deve apostar baseado em regras de risco
+ */
+function checkRiskRules(botId = 'bot1') {
+  const botData = bots[botId];
+  const botState = botData.state;
+  const botConfig = botData.config;
+  const riskState = botData.riskState;
+
+  const issues = [];
+  let canBet = true;
+
+  const currentProfit = botState.balance - riskState.sessionStartBalance;
+
+  // 1. Stop-Loss (se ativo)
+  if (botConfig.stopLoss.enabled) {
+    const stopLossAmount = riskState.sessionStartBalance * botConfig.stopLoss.percent / 100;
+    if (currentProfit <= -stopLossAmount) {
+      canBet = false;
+      riskState.stopLossTriggered = true;
+      issues.push(`STOP-LOSS: Perda de ${formatCurrency(Math.abs(currentProfit))} (limite: ${formatCurrency(stopLossAmount)})`);
+    }
+  }
+
+  // 2. Take-Profit (se ativo)
+  if (botConfig.takeProfit.enabled) {
+    const takeProfitAmount = riskState.sessionStartBalance * botConfig.takeProfit.percent / 100;
+    if (currentProfit >= takeProfitAmount) {
+      canBet = false;
+      riskState.takeProfitTriggered = true;
+      issues.push(`TAKE-PROFIT: Lucro de ${formatCurrency(currentProfit)} (meta: ${formatCurrency(takeProfitAmount)})`);
+    }
+  }
+
+  // 3. Pausa por perdas consecutivas
+  if (riskState.isPaused && riskState.pauseRoundsRemaining > 0) {
+    canBet = false;
+    issues.push(`PAUSA: ${riskState.pauseRoundsRemaining} rodadas restantes`);
+  }
+
+  // 4. Máximo de perdas consecutivas
+  if (riskState.consecutiveLosses >= RISK_CONFIG.maxConsecutiveLosses) {
+    canBet = false;
+    riskState.isPaused = true;
+    riskState.pauseRoundsRemaining = RISK_CONFIG.pauseRoundsAfterMaxLosses;
+    issues.push(`PROTECAO: ${riskState.consecutiveLosses} perdas seguidas - pausando`);
+  }
+
+  // 5. Saldo insuficiente
+  if (botState.balance < RISK_CONFIG.minBetAmount * 2) {
+    canBet = false;
+    issues.push(`SALDO INSUFICIENTE: ${formatCurrency(botState.balance)}`);
+  }
+
+  return { canBet, issues };
+}
+
+/**
+ * Atualiza estado de risco após resultado de aposta
+ */
+function updateRiskStateAfterBet(botId, won, profit) {
+  const riskState = bots[botId].riskState;
+
+  riskState.totalSessionBets++;
+  riskState.sessionProfit += profit;
+
+  // Adiciona resultado ao histórico
+  riskState.lastResults.push(won);
+  if (riskState.lastResults.length > 10) {
+    riskState.lastResults.shift();
+  }
+
+  if (won) {
+    riskState.consecutiveWins++;
+    riskState.consecutiveLosses = 0;
+    riskState.sessionWins++;
+  } else {
+    riskState.consecutiveLosses++;
+    riskState.consecutiveWins = 0;
+  }
+
+  saveBotRiskState(botId);
+}
+
+/**
+ * Decrementa contador de pausa (chamado a cada rodada)
+ */
+function decrementPauseCounter(botId = 'bot1') {
+  const riskState = bots[botId].riskState;
+  if (riskState.isPaused && riskState.pauseRoundsRemaining > 0) {
+    riskState.pauseRoundsRemaining--;
+    if (riskState.pauseRoundsRemaining === 0) {
+      riskState.isPaused = false;
+      riskState.consecutiveLosses = 0;
+      console.log(`[Risk ${botId}] Pausa encerrada, retomando operações`);
+    }
+    saveBotRiskState(botId);
+  }
+}
+
+/**
+ * Retorna estatísticas de risco para exibição
+ */
+function getRiskStats(botId = 'bot1') {
+  const riskState = bots[botId].riskState;
+  const winRate = riskState.totalSessionBets > 0
+    ? (riskState.sessionWins / riskState.totalSessionBets * 100).toFixed(1)
+    : 0;
+
+  return {
+    sessionProfit: riskState.sessionProfit,
+    sessionBets: riskState.totalSessionBets,
+    sessionWinRate: winRate,
+    consecutiveLosses: riskState.consecutiveLosses,
+    consecutiveWins: riskState.consecutiveWins,
+    isPaused: riskState.isPaused,
+    stopLossTriggered: riskState.stopLossTriggered,
+    takeProfitTriggered: riskState.takeProfitTriggered
+  };
+}
+
+/**
+ * Retorna estatísticas agregadas de ambos os bots
+ */
+function getCombinedStats() {
+  const b1 = bots.bot1.state;
+  const b2 = bots.bot2.state;
+  return {
+    totalBalance: b1.balance + b2.balance,
+    totalProfit: b1.stats.totalProfit + b2.stats.totalProfit,
+    totalBets: b1.stats.totalBets + b2.stats.totalBets,
+    totalWins: b1.stats.wins + b2.stats.wins,
+    totalLosses: b1.stats.losses + b2.stats.losses
+  };
+}
+
+/**
+ * Migra dados do formato single-bot para multi-bot
+ */
+function migrateFromSingleBot() {
+  try {
+    const oldState = localStorage.getItem('crash_bot_state');
+    const oldConfig = localStorage.getItem('crash_bot_config');
+    const oldRiskState = localStorage.getItem('crash_bot_risk_state');
+    const oldSessions = localStorage.getItem('crash_bot_sessions');
+
+    // Se já migrou ou não tem dados antigos, retorna
+    if (localStorage.getItem('crash_migration_v2') || !oldState) {
+      return;
+    }
+
+    console.log('[Migration] Migrando dados do single-bot para multi-bot...');
+
+    // Migra para bot1
+    if (oldState) localStorage.setItem(STORAGE_KEYS.bot1.state, oldState);
+    if (oldConfig) localStorage.setItem(STORAGE_KEYS.bot1.config, oldConfig);
+    if (oldRiskState) localStorage.setItem(STORAGE_KEYS.bot1.riskState, oldRiskState);
+    if (oldSessions) localStorage.setItem(STORAGE_KEYS.bot1.sessions, oldSessions);
+
+    // Marca migração como feita
+    localStorage.setItem('crash_migration_v2', 'done');
+    console.log('[Migration] Migração concluída com sucesso');
+  } catch (e) {
+    console.error('[Migration] Erro na migração:', e);
+  }
+}
+
+// Elementos DOM do bot (será mapeado por botId)
 const botElements = {
   statusIndicator: null,
   statusText: null,
@@ -1420,85 +1859,231 @@ const botElements = {
 /**
  * Carrega estado do bot do localStorage
  */
-function loadBotState() {
+function loadBotState(botId = 'bot1') {
   try {
-    const saved = localStorage.getItem(BOT_STORAGE_KEY);
+    const saved = localStorage.getItem(STORAGE_KEYS[botId].state);
     if (saved) {
       const parsed = JSON.parse(saved);
-      // Sempre inicia desativado por segurança, mas sempre em modo live (conta real) por padrão
-      bot = { ...bot, ...parsed, active: false, liveMode: true };
-      console.log('[Bot] Estado carregado:', bot);
+      // Sempre inicia desativado e em modo teste por segurança
+      bots[botId].state = { ...createBotState(botId), ...parsed, active: false, liveMode: false, botId };
+      console.log(`[Bot ${botId}] Estado carregado:`, bots[botId].state);
     }
   } catch (e) {
-    console.error('[Bot] Erro ao carregar estado:', e);
+    console.error(`[Bot ${botId}] Erro ao carregar estado:`, e);
   }
 }
 
 /**
  * Carrega configuração do bot do localStorage
  */
-function loadBotConfig() {
+function loadBotConfig(botId = 'bot1') {
   try {
-    const saved = localStorage.getItem(BOT_CONFIG_STORAGE_KEY);
+    const saved = localStorage.getItem(STORAGE_KEYS[botId].config);
     if (saved) {
       const parsed = JSON.parse(saved);
-      BOT_CONFIG.betAmount = parsed.betAmount || 10;
-      console.log('[Bot] Configuração carregada: R$' + BOT_CONFIG.betAmount + ' por aposta');
+      bots[botId].config = { ...createBotConfig(botId), ...parsed, botId };
+      console.log(`[Bot ${botId}] Configuração carregada`);
     }
   } catch (e) {
-    console.error('[Bot] Erro ao carregar configuração:', e);
+    console.error(`[Bot ${botId}] Erro ao carregar configuração:`, e);
   }
 }
 
 /**
  * Salva configuração do bot no localStorage
  */
-function saveBotConfig() {
+function saveBotConfig(botId = 'bot1') {
   try {
-    const config = {
-      betAmount: BOT_CONFIG.betAmount
-    };
-    localStorage.setItem(BOT_CONFIG_STORAGE_KEY, JSON.stringify(config));
+    localStorage.setItem(STORAGE_KEYS[botId].config, JSON.stringify(bots[botId].config));
   } catch (e) {
-    console.error('[Bot] Erro ao salvar configuração:', e);
+    console.error(`[Bot ${botId}] Erro ao salvar configuração:`, e);
   }
 }
 
 /**
  * Atualiza os campos de configuração na UI
  */
-function updateConfigUI() {
-  if (botElements.configBetAmount) {
-    botElements.configBetAmount.value = BOT_CONFIG.betAmount;
+function updateConfigUI(botId = activeBotTab) {
+  const botConfig = bots[botId].config;
+  const elements = getBotElements(botId);
+
+  if (elements.betAmount) {
+    elements.betAmount.value = botConfig.betAmount;
   }
-  updateConfigSummary();
+
+  // Atualiza toggles de risco
+  if (elements.bankrollEnabled) elements.bankrollEnabled.checked = botConfig.bankrollManagement.enabled;
+  if (elements.maxBetPercent) elements.maxBetPercent.value = botConfig.bankrollManagement.maxBetPercent;
+  if (elements.stopLossEnabled) elements.stopLossEnabled.checked = botConfig.stopLoss.enabled;
+  if (elements.stopLossPercent) elements.stopLossPercent.value = botConfig.stopLoss.percent;
+  if (elements.takeProfitEnabled) elements.takeProfitEnabled.checked = botConfig.takeProfit.enabled;
+  if (elements.takeProfitPercent) elements.takeProfitPercent.value = botConfig.takeProfit.percent;
+  if (elements.dynamicCashoutEnabled) elements.dynamicCashoutEnabled.checked = botConfig.dynamicCashout.enabled;
+  if (elements.cashoutConservative) elements.cashoutConservative.value = botConfig.dynamicCashout.conservative;
+  if (elements.cashoutNormal) elements.cashoutNormal.value = botConfig.dynamicCashout.normal;
+  if (elements.cashoutAggressive) elements.cashoutAggressive.value = botConfig.dynamicCashout.aggressive;
+
+  // Atualiza estado visual dos grupos de config
+  updateConfigGroupVisibility(botId);
+  updateConfigSummary(botId);
+}
+
+/**
+ * Atualiza visibilidade dos grupos de config baseado nos toggles
+ */
+function updateConfigGroupVisibility(botId = activeBotTab) {
+  const elements = getBotElements(botId);
+
+  if (elements.bankrollEnabled && elements.bankrollBody) {
+    elements.bankrollBody.classList.toggle('disabled', !elements.bankrollEnabled.checked);
+  }
+  if (elements.stopLossEnabled && elements.stopLossBody) {
+    elements.stopLossBody.classList.toggle('disabled', !elements.stopLossEnabled.checked);
+  }
+  if (elements.takeProfitEnabled && elements.takeProfitBody) {
+    elements.takeProfitBody.classList.toggle('disabled', !elements.takeProfitEnabled.checked);
+  }
+  if (elements.dynamicCashoutEnabled && elements.dynamicCashoutBody) {
+    elements.dynamicCashoutBody.classList.toggle('disabled', !elements.dynamicCashoutEnabled.checked);
+  }
 }
 
 /**
  * Atualiza o resumo da configuração
  */
-function updateConfigSummary() {
-  const betAmount = botElements.configBetAmount ? parseFloat(botElements.configBetAmount.value) || BOT_CONFIG.betAmount : BOT_CONFIG.betAmount;
+function updateConfigSummary(botId = activeBotTab) {
+  const botConfig = bots[botId].config;
+  const elements = getBotElements(botId);
+
+  const betAmount = elements.betAmount ? parseFloat(elements.betAmount.value) || botConfig.betAmount : botConfig.betAmount;
   const totalPerRound = betAmount * 2;
 
-  if (botElements.configTotalPerRound) {
-    botElements.configTotalPerRound.textContent = formatCurrency(totalPerRound);
+  if (elements.totalPerRound) {
+    elements.totalPerRound.textContent = formatCurrency(totalPerRound);
   }
 }
 
 /**
  * Lê os valores da configuração dos inputs
  */
-function readConfigFromInputs() {
-  if (botElements.configBetAmount) {
-    const value = parseFloat(botElements.configBetAmount.value);
+function readConfigFromInputs(botId = activeBotTab) {
+  const botConfig = bots[botId].config;
+  const elements = getBotElements(botId);
+
+  // Valor da aposta
+  if (elements.betAmount) {
+    const value = parseFloat(elements.betAmount.value);
     if (value > 0 && value <= 1000) {
-      BOT_CONFIG.betAmount = value;
+      botConfig.betAmount = value;
     }
   }
 
-  saveBotConfig();
-  updateConfigSummary();
+  // Gestão de Banca
+  if (elements.bankrollEnabled) botConfig.bankrollManagement.enabled = elements.bankrollEnabled.checked;
+  if (elements.maxBetPercent) {
+    const val = parseFloat(elements.maxBetPercent.value);
+    if (val >= 1 && val <= 100) botConfig.bankrollManagement.maxBetPercent = val;
+  }
+
+  // Stop-Loss
+  if (elements.stopLossEnabled) botConfig.stopLoss.enabled = elements.stopLossEnabled.checked;
+  if (elements.stopLossPercent) {
+    const val = parseFloat(elements.stopLossPercent.value);
+    if (val >= 1 && val <= 100) botConfig.stopLoss.percent = val;
+  }
+
+  // Take-Profit
+  if (elements.takeProfitEnabled) botConfig.takeProfit.enabled = elements.takeProfitEnabled.checked;
+  if (elements.takeProfitPercent) {
+    const val = parseFloat(elements.takeProfitPercent.value);
+    if (val >= 1 && val <= 500) botConfig.takeProfit.percent = val;
+  }
+
+  // Cashout Dinâmico
+  if (elements.dynamicCashoutEnabled) botConfig.dynamicCashout.enabled = elements.dynamicCashoutEnabled.checked;
+  if (elements.cashoutConservative) {
+    const val = parseFloat(elements.cashoutConservative.value);
+    if (val >= 1.01 && val <= 10) botConfig.dynamicCashout.conservative = val;
+  }
+  if (elements.cashoutNormal) {
+    const val = parseFloat(elements.cashoutNormal.value);
+    if (val >= 1.01 && val <= 10) botConfig.dynamicCashout.normal = val;
+  }
+  if (elements.cashoutAggressive) {
+    const val = parseFloat(elements.cashoutAggressive.value);
+    if (val >= 1.01 && val <= 10) botConfig.dynamicCashout.aggressive = val;
+  }
+
+  saveBotConfig(botId);
+  updateConfigSummary(botId);
+}
+
+/**
+ * Obtém elementos DOM de um bot específico
+ */
+function getBotElements(botId) {
+  // Retorna elementos DOM específicos para cada bot
+  return {
+    // Status
+    statusIndicator: document.getElementById(`${botId}StatusIndicator`),
+    statusText: document.getElementById(`${botId}StatusText`),
+    accountType: document.getElementById(`${botId}AccountType`),
+    accountLabel: document.getElementById(`${botId}AccountLabel`),
+    toggleBtn: document.getElementById(`${botId}Toggle`),
+    // Banca
+    balance: document.getElementById(`${botId}Balance`),
+    balanceEditGroup: document.getElementById(`${botId}BalanceEditGroup`),
+    balanceInput: document.getElementById(`${botId}BalanceInput`),
+    balanceSave: document.getElementById(`${botId}BalanceSave`),
+    balanceEditBtn: document.getElementById(`${botId}BalanceEdit`),
+    sessionsBtn: document.getElementById(`${botId}SessionsBtn`),
+    resetBtn: document.getElementById(`${botId}Reset`),
+    // Decisão
+    decision: document.getElementById(`${botId}Decision`),
+    decisionContent: document.getElementById(`${botId}DecisionContent`),
+    // Aposta ativa
+    activeBet: document.getElementById(`${botId}ActiveBet`),
+    betStatus: document.getElementById(`${botId}BetStatus`),
+    betDetails: document.getElementById(`${botId}BetDetails`),
+    // Estatísticas
+    totalBets: document.getElementById(`${botId}TotalBets`),
+    wins: document.getElementById(`${botId}Wins`),
+    profit: document.getElementById(`${botId}Profit`),
+    roi: document.getElementById(`${botId}ROI`),
+    // Histórico
+    historyList: document.getElementById(`${botId}HistoryList`),
+    // Configurações
+    configSection: document.getElementById(`${botId}ConfigSection`),
+    configToggle: document.getElementById(`${botId}ConfigToggle`),
+    configBody: document.getElementById(`${botId}ConfigBody`),
+    liveModeToggle: document.getElementById(`${botId}LiveModeToggle`),
+    liveModeLabel: document.getElementById(`${botId}LiveModeLabel`),
+    liveModeWarning: document.getElementById(`${botId}LiveModeWarning`),
+    betAmount: document.getElementById(`${botId}BetAmount`),
+    totalPerRound: document.getElementById(`${botId}TotalPerRound`),
+    // Gestão de Risco
+    bankrollEnabled: document.getElementById(`${botId}BankrollEnabled`),
+    bankrollBody: document.getElementById(`${botId}BankrollBody`),
+    maxBetPercent: document.getElementById(`${botId}MaxBetPercent`),
+    stopLossEnabled: document.getElementById(`${botId}StopLossEnabled`),
+    stopLossBody: document.getElementById(`${botId}StopLossBody`),
+    stopLossPercent: document.getElementById(`${botId}StopLossPercent`),
+    takeProfitEnabled: document.getElementById(`${botId}TakeProfitEnabled`),
+    takeProfitBody: document.getElementById(`${botId}TakeProfitBody`),
+    takeProfitPercent: document.getElementById(`${botId}TakeProfitPercent`),
+    dynamicCashoutEnabled: document.getElementById(`${botId}DynamicCashoutEnabled`),
+    dynamicCashoutBody: document.getElementById(`${botId}DynamicCashoutBody`),
+    cashoutConservative: document.getElementById(`${botId}CashoutConservative`),
+    cashoutNormal: document.getElementById(`${botId}CashoutNormal`),
+    cashoutAggressive: document.getElementById(`${botId}CashoutAggressive`),
+    // Regras
+    rulesToggle: document.getElementById(`${botId}RulesToggle`),
+    rulesBody: document.getElementById(`${botId}RulesBody`),
+    // Tab elements
+    panel: document.getElementById(`${botId}Panel`),
+    tabBalance: document.getElementById(`${botId}TabBalance`),
+    tabStatus: document.getElementById(`${botId}TabStatus`)
+  };
 }
 
 // ========== SESSÕES ARQUIVADAS ==========
@@ -1506,14 +2091,14 @@ function readConfigFromInputs() {
 /**
  * Carrega sessões arquivadas do localStorage
  */
-function loadArchivedSessions() {
+function loadArchivedSessions(botId = 'bot1') {
   try {
-    const saved = localStorage.getItem(BOT_SESSIONS_KEY);
+    const saved = localStorage.getItem(STORAGE_KEYS[botId].sessions);
     if (saved) {
       return JSON.parse(saved);
     }
   } catch (e) {
-    console.error('[Bot] Erro ao carregar sessões:', e);
+    console.error(`[Bot ${botId}] Erro ao carregar sessões:`, e);
   }
   return [];
 }
@@ -1521,36 +2106,40 @@ function loadArchivedSessions() {
 /**
  * Salva sessões arquivadas no localStorage
  */
-function saveArchivedSessions(sessions) {
+function saveArchivedSessions(sessions, botId = 'bot1') {
   try {
-    localStorage.setItem(BOT_SESSIONS_KEY, JSON.stringify(sessions));
+    localStorage.setItem(STORAGE_KEYS[botId].sessions, JSON.stringify(sessions));
   } catch (e) {
-    console.error('[Bot] Erro ao salvar sessões:', e);
+    console.error(`[Bot ${botId}] Erro ao salvar sessões:`, e);
   }
 }
 
 /**
  * Arquiva a sessão atual do bot
  */
-function archiveCurrentSession() {
+function archiveCurrentSession(botId = 'bot1') {
+  const botState = bots[botId].state;
+  const botConfig = bots[botId].config;
+
   // Só arquiva se tiver apostas
-  if (bot.stats.totalBets === 0) {
-    console.log('[Bot] Nenhuma aposta para arquivar');
+  if (botState.stats.totalBets === 0) {
+    console.log(`[Bot ${botId}] Nenhuma aposta para arquivar`);
     return null;
   }
 
   const session = {
     id: Date.now(),
-    startDate: bot.history.length > 0 ? bot.history[0].timestamp : new Date().toISOString(),
+    botId,
+    startDate: botState.history.length > 0 ? botState.history[0].timestamp : new Date().toISOString(),
     endDate: new Date().toISOString(),
-    initialBalance: bot.initialBalance,
-    finalBalance: bot.balance,
-    stats: { ...bot.stats },
-    history: [...bot.history],
-    betAmount: BOT_CONFIG.betAmount
+    initialBalance: botState.initialBalance,
+    finalBalance: botState.balance,
+    stats: { ...botState.stats },
+    history: [...botState.history],
+    betAmount: botConfig.betAmount
   };
 
-  const sessions = loadArchivedSessions();
+  const sessions = loadArchivedSessions(botId);
   sessions.unshift(session); // Adiciona no início
 
   // Limita a 20 sessões arquivadas
@@ -1558,8 +2147,8 @@ function archiveCurrentSession() {
     sessions.pop();
   }
 
-  saveArchivedSessions(sessions);
-  console.log('[Bot] Sessão arquivada:', session.id);
+  saveArchivedSessions(sessions, botId);
+  console.log(`[Bot ${botId}] Sessão arquivada:`, session.id);
 
   return session;
 }
@@ -1578,25 +2167,30 @@ function formatSessionDate(isoString) {
   });
 }
 
+// Variável para rastrear qual bot está com modal de sessões aberto
+let sessionsModalBotId = 'bot1';
+
 /**
  * Renderiza a lista de sessões arquivadas
  */
-function renderArchivedSessions() {
-  if (!botElements.sessionsList) return;
+function renderArchivedSessions(botId = sessionsModalBotId) {
+  const sessionsList = document.getElementById('sessionsList');
+  if (!sessionsList) return;
 
-  const sessions = loadArchivedSessions();
+  const sessions = loadArchivedSessions(botId);
+  const botLabel = botId === 'bot1' ? 'Bot 1' : 'Bot 2';
 
   if (sessions.length === 0) {
-    botElements.sessionsList.innerHTML = `
+    sessionsList.innerHTML = `
       <div class="no-sessions">
-        <p>Nenhuma sessão arquivada</p>
-        <span>As sessões são salvas automaticamente ao resetar o bot</span>
+        <p>Nenhuma sessao arquivada para ${botLabel}</p>
+        <span>As sessoes sao salvas automaticamente ao resetar o bot</span>
       </div>
     `;
     return;
   }
 
-  botElements.sessionsList.innerHTML = sessions.map((session, index) => {
+  sessionsList.innerHTML = sessions.map((session, index) => {
     const profit = session.stats.totalProfit;
     const profitClass = profit >= 0 ? 'positive' : 'negative';
     const winRate = session.stats.totalBets > 0
@@ -1611,7 +2205,7 @@ function renderArchivedSessions() {
         <div class="session-header">
           <span class="session-number">#${sessions.length - index}</span>
           <span class="session-date">${formatSessionDate(session.startDate)}</span>
-          <button class="session-delete-btn" data-session-id="${session.id}" title="Excluir sessão">×</button>
+          <button class="session-delete-btn" data-session-id="${session.id}" title="Excluir sessao">×</button>
         </div>
         <div class="session-stats">
           <div class="session-stat">
@@ -1619,7 +2213,7 @@ function renderArchivedSessions() {
             <span class="stat-value">${session.stats.totalBets}</span>
           </div>
           <div class="session-stat">
-            <span class="stat-label">Vitórias</span>
+            <span class="stat-label">Vitorias</span>
             <span class="stat-value">${session.stats.wins} (${winRate}%)</span>
           </div>
           <div class="session-stat">
@@ -1640,11 +2234,11 @@ function renderArchivedSessions() {
   }).join('');
 
   // Adiciona eventos de delete
-  botElements.sessionsList.querySelectorAll('.session-delete-btn').forEach(btn => {
+  sessionsList.querySelectorAll('.session-delete-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
       const sessionId = parseInt(btn.dataset.sessionId);
-      deleteArchivedSession(sessionId);
+      deleteArchivedSession(sessionId, botId);
     });
   });
 }
@@ -1652,23 +2246,30 @@ function renderArchivedSessions() {
 /**
  * Deleta uma sessão arquivada
  */
-function deleteArchivedSession(sessionId) {
-  if (!confirm('Tem certeza que deseja excluir esta sessão?')) return;
+function deleteArchivedSession(sessionId, botId = sessionsModalBotId) {
+  if (!confirm('Tem certeza que deseja excluir esta sessao?')) return;
 
-  const sessions = loadArchivedSessions();
+  const sessions = loadArchivedSessions(botId);
   const filtered = sessions.filter(s => s.id !== sessionId);
-  saveArchivedSessions(filtered);
-  renderArchivedSessions();
-  console.log('[Bot] Sessão excluída:', sessionId);
+  saveArchivedSessions(filtered, botId);
+  renderArchivedSessions(botId);
+  console.log(`[Bot ${botId}] Sessao excluida:`, sessionId);
 }
 
 /**
  * Abre o modal de sessões
  */
-function openSessionsModal() {
-  if (botElements.sessionsModal) {
-    renderArchivedSessions();
-    botElements.sessionsModal.classList.add('active');
+function openSessionsModal(botId = activeBotTab) {
+  const sessionsModal = document.getElementById('sessionsModal');
+  if (sessionsModal) {
+    sessionsModalBotId = botId;
+    // Atualiza título do modal
+    const modalTitle = sessionsModal.querySelector('h2');
+    if (modalTitle) {
+      modalTitle.textContent = `Sessoes Arquivadas - ${botId === 'bot1' ? 'Bot 1' : 'Bot 2'}`;
+    }
+    renderArchivedSessions(botId);
+    sessionsModal.classList.add('active');
   }
 }
 
@@ -1676,224 +2277,301 @@ function openSessionsModal() {
  * Fecha o modal de sessões
  */
 function closeSessionsModal() {
-  if (botElements.sessionsModal) {
-    botElements.sessionsModal.classList.remove('active');
+  const sessionsModal = document.getElementById('sessionsModal');
+  if (sessionsModal) {
+    sessionsModal.classList.remove('active');
   }
 }
 
 /**
  * Salva estado do bot no localStorage
  */
-function saveBotState() {
+function saveBotState(botId = 'bot1') {
   try {
-    localStorage.setItem(BOT_STORAGE_KEY, JSON.stringify(bot));
+    localStorage.setItem(STORAGE_KEYS[botId].state, JSON.stringify(bots[botId].state));
   } catch (e) {
-    console.error('[Bot] Erro ao salvar estado:', e);
+    console.error(`[Bot ${botId}] Erro ao salvar estado:`, e);
   }
 }
 
 /**
  * Sincroniza o saldo do bot com o saldo real da plataforma (modo live)
  */
-async function syncPlatformBalance(forceSync = false) {
+async function syncPlatformBalance(botId = 'bot1', forceSync = false) {
+  const botState = bots[botId].state;
+
   // Só sincroniza em modo live (ou se forçado)
-  if (!bot.liveMode && !forceSync) {
+  if (!botState.liveMode && !forceSync) {
     return false;
   }
 
-  console.log('[Bot] 💰 Buscando saldo da plataforma...');
+  console.log(`[Bot ${botId}] Buscando saldo da plataforma...`);
 
   try {
-    const response = await fetch('/api/live-betting/balance');
+    const response = await fetch(`${observerApiUrl}/api/live-betting/balance`);
     const result = await response.json();
 
     if (result.success && typeof result.balance === 'number') {
-      const oldBalance = bot.balance;
-      bot.balance = result.balance;
-      bot.initialBalance = result.balance; // Atualiza também o saldo inicial para cálculos corretos
+      const oldBalance = botState.balance;
+      botState.balance = result.balance;
+      botState.initialBalance = result.balance;
 
-      console.log(`[Bot] 💰 Saldo sincronizado: ${formatCurrency(oldBalance)} → ${formatCurrency(result.balance)}`);
+      console.log(`[Bot ${botId}] Saldo sincronizado: ${formatCurrency(oldBalance)} -> ${formatCurrency(result.balance)}`);
 
-      saveBotState();
-      renderBot();
+      saveBotState(botId);
+      renderBot(botId);
       return true;
     } else {
-      console.warn('[Bot] ⚠️ Não foi possível sincronizar saldo:', result.error || 'Erro desconhecido');
+      console.warn(`[Bot ${botId}] Não foi possível sincronizar saldo:`, result.error || 'Erro desconhecido');
       return false;
     }
   } catch (err) {
-    console.error('[Bot] ❌ Erro ao sincronizar saldo:', err);
+    console.error(`[Bot ${botId}] Erro ao sincronizar saldo:`, err);
     return false;
   }
 }
 
 /**
- * Inicializa elementos DOM do bot
+ * Configura eventos de um bot específico
  */
-function initBotElements() {
-  botElements.statusIndicator = document.getElementById('botStatusIndicator');
-  botElements.statusText = document.getElementById('botStatusText');
-  botElements.toggleBtn = document.getElementById('botToggle');
-  botElements.balance = document.getElementById('botBalance');
-  botElements.resetBtn = document.getElementById('botReset');
-  botElements.decisionBox = document.getElementById('botDecision');
-  botElements.decisionContent = document.getElementById('botDecisionContent');
-  botElements.activeBet = document.getElementById('botActiveBet');
-  botElements.betStatus = document.getElementById('botBetStatus');
-  botElements.betDetails = document.getElementById('botBetDetails');
-  botElements.totalBets = document.getElementById('botTotalBets');
-  botElements.wins = document.getElementById('botWins');
-  botElements.profit = document.getElementById('botProfit');
-  botElements.roi = document.getElementById('botROI');
-  botElements.historyList = document.getElementById('botHistoryList');
-  // Live mode elements
-  botElements.liveModeSection = document.getElementById('liveModeSection');
-  botElements.liveModeToggle = document.getElementById('liveModeToggle');
-  botElements.liveModeLabel = document.getElementById('liveModeLabel');
-  botElements.liveModeWarning = document.getElementById('liveModeWarning');
-  // Config elements
-  botElements.configBetAmount = document.getElementById('botBetAmount');
-  botElements.configTotalPerRound = document.getElementById('botTotalPerRound');
-  // Sessions elements
-  botElements.sessionsBtn = document.getElementById('botSessionsBtn');
-  botElements.sessionsModal = document.getElementById('sessionsModal');
-  botElements.sessionsList = document.getElementById('sessionsList');
-  botElements.sessionsClose = document.getElementById('sessionsClose');
-  // Balance edit elements
-  botElements.balanceEditGroup = document.getElementById('balanceEditGroup');
-  botElements.balanceInput = document.getElementById('botBalanceInput');
-  botElements.balanceSaveBtn = document.getElementById('botBalanceSave');
-  botElements.balanceEditBtn = document.getElementById('botBalanceEdit');
-  // Account type elements
-  botElements.accountType = document.getElementById('botAccountType');
-  botElements.accountLabel = document.getElementById('botAccountLabel');
-  // Collapsible sections
-  botElements.configSection = document.getElementById('botConfigSection');
-  botElements.configToggle = document.getElementById('configToggle');
-  botElements.configBody = document.getElementById('configBody');
-  botElements.rulesSection = document.querySelector('.bot-rules.collapsible');
-  botElements.rulesToggle = document.getElementById('rulesToggle');
-  botElements.rulesBody = document.getElementById('rulesBody');
-}
+function setupBotEventListeners(botId) {
+  const elements = getBotElements(botId);
 
-/**
- * Configura eventos do bot
- */
-function setupBotEvents() {
-  initBotElements();
-
-  if (botElements.toggleBtn) {
-    botElements.toggleBtn.addEventListener('click', toggleBot);
+  // Toggle bot on/off
+  if (elements.toggleBtn) {
+    elements.toggleBtn.addEventListener('click', () => toggleBot(botId));
   }
 
-  if (botElements.resetBtn) {
-    botElements.resetBtn.addEventListener('click', resetBot);
+  // Reset bot
+  if (elements.resetBtn) {
+    elements.resetBtn.addEventListener('click', () => resetBot(botId));
   }
 
   // Live mode toggle
-  if (botElements.liveModeToggle) {
-    botElements.liveModeToggle.addEventListener('change', handleLiveModeToggle);
+  if (elements.liveModeToggle) {
+    elements.liveModeToggle.addEventListener('change', () => handleLiveModeToggle(botId));
   }
 
-  // Config inputs - save on change (blur), update summary on input (typing)
-  if (botElements.configBetAmount) {
-    botElements.configBetAmount.addEventListener('change', readConfigFromInputs);
-    botElements.configBetAmount.addEventListener('input', updateConfigSummary);
+  // Config inputs - save on change
+  if (elements.betAmount) {
+    elements.betAmount.addEventListener('change', () => readConfigFromInputs(botId));
+    elements.betAmount.addEventListener('input', () => updateConfigSummary(botId));
   }
 
-  // Quick buttons for bet amount
+  // Risk config toggles
+  if (elements.bankrollEnabled) {
+    elements.bankrollEnabled.addEventListener('change', () => {
+      readConfigFromInputs(botId);
+      updateConfigGroupVisibility(botId);
+    });
+  }
+  if (elements.stopLossEnabled) {
+    elements.stopLossEnabled.addEventListener('change', () => {
+      readConfigFromInputs(botId);
+      updateConfigGroupVisibility(botId);
+    });
+  }
+  if (elements.takeProfitEnabled) {
+    elements.takeProfitEnabled.addEventListener('change', () => {
+      readConfigFromInputs(botId);
+      updateConfigGroupVisibility(botId);
+    });
+  }
+  if (elements.dynamicCashoutEnabled) {
+    elements.dynamicCashoutEnabled.addEventListener('change', () => {
+      readConfigFromInputs(botId);
+      updateConfigGroupVisibility(botId);
+    });
+  }
+
+  // All other config inputs
+  const configInputs = [
+    elements.maxBetPercent, elements.stopLossPercent, elements.takeProfitPercent,
+    elements.cashoutConservative, elements.cashoutNormal, elements.cashoutAggressive
+  ];
+  configInputs.forEach(input => {
+    if (input) {
+      input.addEventListener('change', () => readConfigFromInputs(botId));
+    }
+  });
+
+  // Balance edit events
+  if (elements.balanceEditBtn) {
+    elements.balanceEditBtn.addEventListener('click', () => toggleBalanceEdit(botId));
+  }
+  if (elements.balanceSave) {
+    elements.balanceSave.addEventListener('click', () => saveBalanceEdit(botId));
+  }
+  if (elements.balanceInput) {
+    elements.balanceInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') saveBalanceEdit(botId);
+      else if (e.key === 'Escape') cancelBalanceEdit(botId);
+    });
+  }
+
+  // Sessions button
+  if (elements.sessionsBtn) {
+    elements.sessionsBtn.addEventListener('click', () => openSessionsModal(botId));
+  }
+
+  // Collapsible sections
+  if (elements.configToggle) {
+    elements.configToggle.addEventListener('click', () => {
+      toggleCollapsible(elements.configSection);
+    });
+  }
+  if (elements.rulesToggle) {
+    elements.rulesToggle.addEventListener('click', () => {
+      const rulesSection = elements.rulesToggle.closest('.bot-rules');
+      toggleCollapsible(rulesSection);
+    });
+  }
+
+  // Inicia seções colapsadas
+  if (elements.configSection) {
+    elements.configSection.classList.add('collapsed');
+  }
+}
+
+/**
+ * Configura eventos das abas de seleção de bot
+ */
+function setupBotTabEvents() {
+  const botTabs = document.querySelectorAll('.bot-tab');
+  const botPanels = document.querySelectorAll('.bot-panel');
+
+  botTabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+      const targetBotId = tab.dataset.bot;
+
+      // Atualiza tab ativa
+      botTabs.forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+
+      // Atualiza painel ativo
+      botPanels.forEach(p => p.classList.remove('active'));
+      const targetPanel = document.getElementById(`${targetBotId}Panel`);
+      if (targetPanel) targetPanel.classList.add('active');
+
+      // Atualiza variável global
+      activeBotTab = targetBotId;
+
+      // Atualiza UI do bot selecionado
+      renderBot(targetBotId);
+      updateConfigUI(targetBotId);
+    });
+  });
+}
+
+/**
+ * Configura quick buttons para configurações
+ */
+function setupQuickButtons() {
+  // Quick buttons para valor de aposta
   document.querySelectorAll('.config-quick-btn[data-amount]').forEach(btn => {
     btn.addEventListener('click', () => {
+      const botId = btn.dataset.bot || activeBotTab;
       const amount = parseFloat(btn.dataset.amount);
-      if (amount > 0 && botElements.configBetAmount) {
-        botElements.configBetAmount.value = amount;
-        BOT_CONFIG.betAmount = amount;
-        saveBotConfig();
-        updateConfigSummary();
+      const elements = getBotElements(botId);
+
+      if (amount > 0 && elements.betAmount) {
+        elements.betAmount.value = amount;
+        bots[botId].config.betAmount = amount;
+        saveBotConfig(botId);
+        updateConfigSummary(botId);
       }
     });
   });
 
-  // Sessions events
-  if (botElements.sessionsBtn) {
-    botElements.sessionsBtn.addEventListener('click', openSessionsModal);
-  }
-  if (botElements.sessionsClose) {
-    botElements.sessionsClose.addEventListener('click', closeSessionsModal);
-  }
-  if (botElements.sessionsModal) {
-    // Fecha ao clicar fora do modal
-    botElements.sessionsModal.addEventListener('click', (e) => {
-      if (e.target === botElements.sessionsModal) {
-        closeSessionsModal();
+  // Quick buttons para stop-loss, take-profit
+  document.querySelectorAll('.config-quick-btn[data-field]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const botId = btn.dataset.bot || activeBotTab;
+      const field = btn.dataset.field;
+      const value = parseFloat(btn.dataset.value);
+      const elements = getBotElements(botId);
+
+      if (field === 'stopLoss' && elements.stopLossPercent) {
+        elements.stopLossPercent.value = value;
+      } else if (field === 'takeProfit' && elements.takeProfitPercent) {
+        elements.takeProfitPercent.value = value;
       }
+      readConfigFromInputs(botId);
+    });
+  });
+}
+
+/**
+ * Configura eventos do bot (versão multi-bot)
+ */
+function setupBotEvents() {
+  // Configura abas de seleção de bot
+  setupBotTabEvents();
+
+  // Configura eventos para cada bot
+  setupBotEventListeners('bot1');
+  setupBotEventListeners('bot2');
+
+  // Configura quick buttons
+  setupQuickButtons();
+
+  // Sessions modal global events
+  const sessionsModal = document.getElementById('sessionsModal');
+  const sessionsClose = document.getElementById('sessionsClose');
+
+  if (sessionsClose) {
+    sessionsClose.addEventListener('click', closeSessionsModal);
+  }
+  if (sessionsModal) {
+    sessionsModal.addEventListener('click', (e) => {
+      if (e.target === sessionsModal) closeSessionsModal();
     });
   }
 
-  // Balance edit events
-  if (botElements.balanceEditBtn) {
-    botElements.balanceEditBtn.addEventListener('click', toggleBalanceEdit);
-  }
-  if (botElements.balanceSaveBtn) {
-    botElements.balanceSaveBtn.addEventListener('click', saveBalanceEdit);
-  }
-  if (botElements.balanceInput) {
-    botElements.balanceInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        saveBalanceEdit();
-      } else if (e.key === 'Escape') {
-        cancelBalanceEdit();
-      }
-    });
-  }
+  // Carrega estado e config de ambos bots
+  migrateFromSingleBot();
+  loadBotState('bot1');
+  loadBotState('bot2');
+  loadBotConfig('bot1');
+  loadBotConfig('bot2');
+  loadBotRiskState('bot1');
+  loadBotRiskState('bot2');
 
-  // Collapsible sections events
-  if (botElements.configToggle) {
-    botElements.configToggle.addEventListener('click', () => {
-      toggleCollapsible(botElements.configSection);
-    });
-  }
-  if (botElements.rulesToggle) {
-    botElements.rulesToggle.addEventListener('click', () => {
-      toggleCollapsible(botElements.rulesSection);
-    });
-  }
-
-  // Inicia as seções colapsadas para economizar espaço
-  if (botElements.configSection) {
-    botElements.configSection.classList.add('collapsed');
-  }
-  if (botElements.rulesSection) {
-    botElements.rulesSection.classList.add('collapsed');
-  }
-
-  // Load config and update UI
-  loadBotConfig();
-  updateConfigUI();
+  // Atualiza UI de ambos bots
+  updateConfigUI('bot1');
+  updateConfigUI('bot2');
+  renderBot('bot1');
+  renderBot('bot2');
+  updateBotTabBalance('bot1');
+  updateBotTabBalance('bot2');
+  updateCombinedStats();
 }
 
 /**
  * Abre o modo de edição de banca
  */
-function toggleBalanceEdit() {
-  if (!botElements.balanceEditGroup || !botElements.balance) return;
+function toggleBalanceEdit(botId = activeBotTab) {
+  const elements = getBotElements(botId);
+  const botState = bots[botId].state;
 
-  const isEditing = !botElements.balanceEditGroup.classList.contains('hidden');
+  if (!elements.balanceEditGroup || !elements.balance) return;
+
+  const isEditing = !elements.balanceEditGroup.classList.contains('hidden');
 
   if (isEditing) {
     // Fecha a edição
-    cancelBalanceEdit();
+    cancelBalanceEdit(botId);
   } else {
     // Abre a edição
-    botElements.balanceEditGroup.classList.remove('hidden');
-    botElements.balance.classList.add('hidden');
-    botElements.balanceEditBtn.classList.add('hidden');
+    elements.balanceEditGroup.classList.remove('hidden');
+    elements.balance.classList.add('hidden');
+    elements.balanceEditBtn.classList.add('hidden');
 
     // Preenche o input com o valor atual
-    if (botElements.balanceInput) {
-      botElements.balanceInput.value = bot.balance.toFixed(2);
-      botElements.balanceInput.focus();
-      botElements.balanceInput.select();
+    if (elements.balanceInput) {
+      elements.balanceInput.value = botState.balance.toFixed(2);
+      elements.balanceInput.focus();
+      elements.balanceInput.select();
     }
   }
 }
@@ -1901,10 +2579,13 @@ function toggleBalanceEdit() {
 /**
  * Salva a edição de banca
  */
-function saveBalanceEdit() {
-  if (!botElements.balanceInput) return;
+function saveBalanceEdit(botId = activeBotTab) {
+  const elements = getBotElements(botId);
+  const botState = bots[botId].state;
 
-  const newBalance = parseFloat(botElements.balanceInput.value);
+  if (!elements.balanceInput) return;
+
+  const newBalance = parseFloat(elements.balanceInput.value);
 
   if (isNaN(newBalance) || newBalance < 0) {
     alert('Por favor, insira um valor válido para a banca.');
@@ -1912,31 +2593,34 @@ function saveBalanceEdit() {
   }
 
   // Atualiza a banca
-  bot.balance = newBalance;
-  bot.initialBalance = newBalance;
-  saveBotState();
+  botState.balance = newBalance;
+  botState.initialBalance = newBalance;
+  saveBotState(botId);
 
-  console.log(`[Bot] Banca atualizada: R$ ${newBalance.toFixed(2)}`);
+  console.log(`[Bot ${botId}] Banca atualizada: R$ ${newBalance.toFixed(2)}`);
 
   // Fecha o modo de edição
-  cancelBalanceEdit();
+  cancelBalanceEdit(botId);
 
   // Atualiza a UI
-  renderBot();
+  renderBot(botId);
+  updateBotTabBalance(botId);
 }
 
 /**
  * Cancela a edição de banca
  */
-function cancelBalanceEdit() {
-  if (botElements.balanceEditGroup) {
-    botElements.balanceEditGroup.classList.add('hidden');
+function cancelBalanceEdit(botId = activeBotTab) {
+  const elements = getBotElements(botId);
+
+  if (elements.balanceEditGroup) {
+    elements.balanceEditGroup.classList.add('hidden');
   }
-  if (botElements.balance) {
-    botElements.balance.classList.remove('hidden');
+  if (elements.balance) {
+    elements.balance.classList.remove('hidden');
   }
-  if (botElements.balanceEditBtn) {
-    botElements.balanceEditBtn.classList.remove('hidden');
+  if (elements.balanceEditBtn) {
+    elements.balanceEditBtn.classList.remove('hidden');
   }
 }
 
@@ -1950,46 +2634,65 @@ function toggleCollapsible(section) {
 
 /**
  * Gera um valor de cashout randomizado
- * Para simular cliques humanos, adiciona entre 0.03 e 0.17 ao valor base
+ * Para simular cliques humanos, adiciona um offset aleatório ao valor base
+ * @param {number} baseValue - Valor base do cashout
+ * @param {number} minOffset - Offset mínimo (padrão 0.03)
+ * @param {number} maxOffset - Offset máximo (padrão 0.17)
  */
-function randomizeCashout(baseValue) {
-  const minOffset = 0.03;
-  const maxOffset = 0.17;
+function randomizeCashout(baseValue, minOffset = 0.03, maxOffset = 0.17) {
   const randomOffset = minOffset + Math.random() * (maxOffset - minOffset);
   return parseFloat((baseValue + randomOffset).toFixed(2));
 }
 
 /**
  * Ativa/desativa modo de apostas reais
+ * Implementa exclusividade: apenas um bot pode estar em live mode por vez
  */
-async function handleLiveModeToggle() {
-  const enabled = botElements.liveModeToggle.checked;
+async function handleLiveModeToggle(botId = activeBotTab) {
+  const elements = getBotElements(botId);
+  const botState = bots[botId].state;
+  const botConfig = bots[botId].config;
+  const enabled = elements.liveModeToggle?.checked ?? false;
 
   if (enabled) {
     // Lê os valores atuais da configuração
-    readConfigFromInputs();
+    readConfigFromInputs(botId);
 
     // Pede confirmação antes de ativar
-    const totalPerRound = BOT_CONFIG.betAmount * 2;
+    const totalPerRound = botConfig.betAmount * 2;
+    const botLabel = botId === 'bot1' ? 'Bot 1' : 'Bot 2';
     const confirmed = confirm(
       '⚠️ ATENÇÃO: APOSTAS REAIS ⚠️\n\n' +
-      'Você está prestes a ativar o modo de apostas REAIS.\n' +
+      `Você está prestes a ativar o modo de apostas REAIS para ${botLabel}.\n` +
       'Isso usará DINHEIRO REAL da sua conta SpinBetter!\n\n' +
       'Configuração atual:\n' +
-      '• Valor por aposta: R$ ' + BOT_CONFIG.betAmount.toFixed(2) + '\n' +
+      '• Valor por aposta: R$ ' + botConfig.betAmount.toFixed(2) + '\n' +
       '• Total por rodada: R$ ' + totalPerRound.toFixed(2) + '\n' +
       '• Cashouts: Automático (baseado nas sequências)\n\n' +
       'Tem certeza que deseja continuar?'
     );
 
     if (!confirmed) {
-      botElements.liveModeToggle.checked = false;
+      if (elements.liveModeToggle) elements.liveModeToggle.checked = false;
       return;
+    }
+
+    // Exclusividade: desativa live mode do outro bot
+    const otherBotId = botId === 'bot1' ? 'bot2' : 'bot1';
+    const otherBotState = bots[otherBotId].state;
+    if (otherBotState.liveMode) {
+      otherBotState.liveMode = false;
+      saveBotState(otherBotId);
+      updateLiveModeUI(otherBotId);
+      const otherElements = getBotElements(otherBotId);
+      if (otherElements.liveModeToggle) otherElements.liveModeToggle.checked = false;
+      console.log(`[Bot ${otherBotId}] Modo live DESATIVADO (exclusividade)`);
+      showToast(`Modo live desativado para ${otherBotId === 'bot1' ? 'Bot 1' : 'Bot 2'} (apenas um bot pode estar em live)`);
     }
   }
 
   try {
-    const response = await fetch('/api/live-betting/enable', {
+    const response = await fetch(`${observerApiUrl}/api/live-betting/enable`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ enabled })
@@ -1998,67 +2701,81 @@ async function handleLiveModeToggle() {
     const result = await response.json();
 
     if (result.success) {
-      bot.liveMode = enabled;
-      saveBotState();
-      updateLiveModeUI();
-      console.log(`[Bot] Modo live ${enabled ? 'ATIVADO' : 'desativado'}`);
+      botState.liveMode = enabled;
+      saveBotState(botId);
+      updateLiveModeUI(botId);
+      console.log(`[Bot ${botId}] Modo live ${enabled ? 'ATIVADO' : 'desativado'}`);
     } else {
       throw new Error(result.error || 'Erro ao alterar modo live');
     }
   } catch (err) {
-    console.error('[Bot] Erro ao alterar modo live:', err);
-    botElements.liveModeToggle.checked = !enabled;
+    console.error(`[Bot ${botId}] Erro ao alterar modo live:`, err);
+    if (elements.liveModeToggle) elements.liveModeToggle.checked = !enabled;
     alert('Erro ao alterar modo live: ' + err.message);
   }
 }
 
 /**
+ * Exibe uma notificação toast ao usuário
+ */
+function showToast(message, duration = 3000) {
+  const existingToast = document.querySelector('.toast-notification');
+  if (existingToast) existingToast.remove();
+
+  const toast = document.createElement('div');
+  toast.className = 'toast-notification';
+  toast.textContent = message;
+  document.body.appendChild(toast);
+
+  setTimeout(() => toast.classList.add('show'), 10);
+  setTimeout(() => {
+    toast.classList.remove('show');
+    setTimeout(() => toast.remove(), 300);
+  }, duration);
+}
+
+/**
  * Atualiza UI do modo live
  */
-function updateLiveModeUI() {
-  if (bot.liveMode) {
-    // Label no config
-    if (botElements.liveModeLabel) {
-      botElements.liveModeLabel.textContent = 'Conta Real Ativa';
-      botElements.liveModeLabel.classList.add('active');
+function updateLiveModeUI(botId = activeBotTab) {
+  const elements = getBotElements(botId);
+  const botState = bots[botId].state;
+
+  if (botState.liveMode) {
+    if (elements.liveModeLabel) {
+      elements.liveModeLabel.textContent = 'Conta Real Ativa';
+      elements.liveModeLabel.classList.add('active');
     }
-    // Warning
-    if (botElements.liveModeWarning) {
-      botElements.liveModeWarning.classList.remove('hidden');
+    if (elements.liveModeWarning) {
+      elements.liveModeWarning.classList.remove('hidden');
     }
-    // Account type indicator
-    if (botElements.accountType) {
-      botElements.accountType.classList.add('live');
+    if (elements.accountType) {
+      elements.accountType.classList.add('live');
     }
-    if (botElements.accountLabel) {
-      botElements.accountLabel.textContent = 'Conta Real';
+    if (elements.accountLabel) {
+      elements.accountLabel.textContent = 'Conta Real';
     }
-    // Icon
-    const accountIcon = botElements.accountType?.querySelector('.account-icon');
+    const accountIcon = elements.accountType?.querySelector('.account-icon');
     if (accountIcon) {
-      accountIcon.textContent = '💰';
+      accountIcon.textContent = '$';
     }
   } else {
-    // Label no config
-    if (botElements.liveModeLabel) {
-      botElements.liveModeLabel.textContent = 'Usar Conta Real';
-      botElements.liveModeLabel.classList.remove('active');
+    if (elements.liveModeLabel) {
+      elements.liveModeLabel.textContent = 'Usar Conta Real';
+      elements.liveModeLabel.classList.remove('active');
     }
-    // Warning
-    if (botElements.liveModeWarning) {
-      botElements.liveModeWarning.classList.add('hidden');
+    if (elements.liveModeWarning) {
+      elements.liveModeWarning.classList.add('hidden');
     }
-    // Account type indicator
-    if (botElements.accountType) {
-      botElements.accountType.classList.remove('live');
+    if (elements.accountType) {
+      elements.accountType.classList.remove('live');
     }
-    if (botElements.accountLabel) {
-      botElements.accountLabel.textContent = 'Conta Fictícia';
+    if (elements.accountLabel) {
+      elements.accountLabel.textContent = 'Simulacao';
     }
-    // Icon
-    const accountIcon = botElements.accountType?.querySelector('.account-icon');
+    const accountIcon = elements.accountType?.querySelector('.account-icon');
     if (accountIcon) {
-      accountIcon.textContent = '🎮';
+      accountIcon.textContent = 'T';
     }
   }
 }
@@ -2085,9 +2802,9 @@ function setupSimulatorTabs() {
         targetContent.classList.add('active');
       }
 
-      // Se for a tab do bot, atualiza a análise
-      if (targetTab === 'bot' && bot.active) {
-        updateBotDecision();
+      // Se for a tab do bot, atualiza a análise para o bot ativo
+      if (targetTab === 'bot' && bots[activeBotTab].state.active) {
+        updateBotDecision(activeBotTab);
       }
     });
   });
@@ -2109,17 +2826,18 @@ function setupSimulatorTabs() {
 /**
  * Liga/desliga o bot
  */
-async function toggleBot() {
-  bot.active = !bot.active;
+async function toggleBot(botId = activeBotTab) {
+  const botState = bots[botId].state;
+  botState.active = !botState.active;
 
-  if (bot.active) {
-    console.log('[Bot] Ativado!');
+  if (botState.active) {
+    console.log(`[Bot ${botId}] Ativado!`);
 
     // Se está em modo live, precisa ativar o live betting no backend
-    if (bot.liveMode) {
+    if (botState.liveMode) {
       try {
-        console.log('[Bot] Ativando live betting no backend...');
-        const response = await fetch('/api/live-betting/enable', {
+        console.log(`[Bot ${botId}] Ativando live betting no backend...`);
+        const response = await fetch(`${observerApiUrl}/api/live-betting/enable`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ enabled: true })
@@ -2128,67 +2846,69 @@ async function toggleBot() {
         const result = await response.json();
 
         if (!result.success) {
-          console.error('[Bot] Erro ao ativar live betting:', result.error);
-          bot.active = false;
+          console.error(`[Bot ${botId}] Erro ao ativar live betting:`, result.error);
+          botState.active = false;
           alert('Erro ao ativar apostas reais: ' + (result.error || 'Erro desconhecido'));
-          renderBot();
+          renderBot(botId);
           return;
         }
 
-        console.log('[Bot] Live betting ativado no backend com sucesso!');
+        console.log(`[Bot ${botId}] Live betting ativado no backend com sucesso!`);
 
         // Sincroniza o saldo da plataforma (obrigatório antes de iniciar)
-        const synced = await syncPlatformBalance();
+        const synced = await syncPlatformBalance(botId);
         if (!synced) {
-          console.warn('[Bot] Não foi possível sincronizar saldo, usando valor atual');
+          console.warn(`[Bot ${botId}] Não foi possível sincronizar saldo, usando valor atual`);
         }
       } catch (err) {
-        console.error('[Bot] Erro ao ativar live betting:', err);
-        bot.active = false;
+        console.error(`[Bot ${botId}] Erro ao ativar live betting:`, err);
+        botState.active = false;
         alert('Erro ao conectar com o servidor de apostas reais');
-        renderBot();
+        renderBot(botId);
         return;
       }
     }
 
-    updateBotDecision();
+    updateBotDecision(botId);
   } else {
-    console.log('[Bot] Desativado');
+    console.log(`[Bot ${botId}] Desativado`);
     // Cancela aposta pendente se houver (devolve o valor apostado)
-    if (bot.activeBet) {
-      const refund = bot.activeBet.amount * 2;
-      bot.balance += refund;
-      console.log(`[Bot] Aposta cancelada, devolvido: ${formatCurrency(refund)}`);
-      console.log(`[Bot] Saldo após devolução: ${formatCurrency(bot.balance)}`);
-      bot.activeBet = null;
+    if (botState.activeBet) {
+      const refund = botState.activeBet.amount * 2;
+      botState.balance += refund;
+      console.log(`[Bot ${botId}] Aposta cancelada, devolvido: ${formatCurrency(refund)}`);
+      console.log(`[Bot ${botId}] Saldo após devolução: ${formatCurrency(botState.balance)}`);
+      botState.activeBet = null;
     }
 
     // Se estava em modo live, desativa no backend também
-    if (bot.liveMode) {
+    if (botState.liveMode) {
       try {
-        await fetch('/api/live-betting/enable', {
+        await fetch(`${observerApiUrl}/api/live-betting/enable`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ enabled: false })
         });
-        console.log('[Bot] Live betting desativado no backend');
+        console.log(`[Bot ${botId}] Live betting desativado no backend`);
       } catch (err) {
-        console.error('[Bot] Erro ao desativar live betting:', err);
+        console.error(`[Bot ${botId}] Erro ao desativar live betting:`, err);
       }
     }
   }
 
-  saveBotState();
-  renderBot();
+  saveBotState(botId);
+  renderBot(botId);
+  updateBotTabBalance(botId);
 }
 
 /**
  * Reseta o bot
  */
-function resetBot() {
-  const hasHistory = bot.stats.totalBets > 0;
+function resetBot(botId = activeBotTab) {
+  const botState = bots[botId].state;
+  const hasHistory = botState.stats.totalBets > 0;
 
-  let message = 'Tem certeza que deseja resetar o bot?';
+  let message = `Tem certeza que deseja resetar o ${botId === 'bot1' ? 'Bot 1' : 'Bot 2'}?`;
   if (hasHistory) {
     message += '\n\nA sessão atual será ARQUIVADA antes do reset.';
   }
@@ -2199,54 +2919,51 @@ function resetBot() {
 
   // Arquiva a sessão atual antes de resetar
   if (hasHistory) {
-    const archived = archiveCurrentSession();
+    const archived = archiveCurrentSession(botId);
     if (archived) {
-      console.log('[Bot] Sessão arquivada com sucesso');
+      console.log(`[Bot ${botId}] Sessão arquivada com sucesso`);
     }
   }
 
-  bot = {
-    active: false,
-    balance: 100,
-    initialBalance: 100,
-    activeBet: null,
-    history: [],
-    stats: {
-      totalBets: 0,
-      wins: 0,
-      losses: 0,
-      totalWagered: 0,
-      totalProfit: 0
-    },
-    lastDecision: null,
-    liveMode: true, // Mantém conta real como padrão
-    isProcessing: false,
-    lastRoundTime: 0,
-    adaptiveCycle: {
-      active: false,
-      currentTarget: 15,
-      attemptsAtCurrentTarget: 0,
-      maxAttempts: 3,
-      totalCycleAttempts: 0,
-      lastHitTarget: null
-    }
-  };
+  // Cria novo estado usando a factory
+  bots[botId].state = createBotState(botId);
 
-  saveBotState();
-  renderBot();
-  console.log('[Bot] Resetado - Nova sessão iniciada');
+  saveBotState(botId);
+
+  // Reseta estado de gestão de risco também
+  resetBotRiskState(botId);
+
+  renderBot(botId);
+  updateBotTabBalance(botId);
+  console.log(`[Bot ${botId}] Resetado - Nova sessão iniciada`);
 }
 
 /**
  * Analisa as sequências e decide se deve apostar
- * Retorna: { shouldBet, reasons, targetCashout2 }
+ * Retorna: { shouldBet, reasons, targetCashout2, betSize, cashout1Info }
  */
-function analyzeBotDecision() {
+function analyzeBotDecision(botId = 'bot1') {
+  const botData = bots[botId];
+  const botState = botData.state;
+  const botConfig = botData.config;
+
+  // ========== VERIFICAÇÃO DE RISCO PRIMEIRO ==========
+  const riskCheck = checkRiskRules(botId);
+  if (!riskCheck.canBet) {
+    return {
+      shouldBet: false,
+      reasons: riskCheck.issues,
+      targetCashout2: botConfig.cashout2Default,
+      isHighOpportunity: false,
+      riskBlocked: true
+    };
+  }
+
   if (!advancedStats || !advancedStats.sequenceAnalysis) {
     return {
       shouldBet: false,
       reasons: ['Dados insuficientes para análise'],
-      targetCashout2: BOT_CONFIG.cashout2Default,
+      targetCashout2: botConfig.cashout2Default,
       isHighOpportunity: false
     };
   }
@@ -2254,8 +2971,12 @@ function analyzeBotDecision() {
   const seq = advancedStats.sequenceAnalysis;
   const reasons = [];
   let shouldBet = false;
-  let targetCashout2 = BOT_CONFIG.cashout2Default;
+  let targetCashout2 = botConfig.cashout2Default;
   let isHighOpportunity = false;
+
+  // Calcula tamanho ideal da aposta e primeiro cashout
+  const betSizeInfo = calculateOptimalBetSize(botId);
+  const cashout1Info = calculateOptimalCashout1(botId);
 
   // Extrai dados das sequências
   const seq2x = seq.below2x || { currentStreak: 0, avgRoundsToHit: 2, deviationRatio: 0, status: 'normal' };
@@ -2265,8 +2986,6 @@ function analyzeBotDecision() {
   const seq20x = seq.below20x || { currentStreak: 0, avgRoundsToHit: 20, deviationRatio: 0, status: 'normal' };
 
   // Status das sequências
-  // 'due' = acima da média (deviationRatio > 1)
-  // 'overdue' = muito acima da média (deviationRatio > 1.5)
   const is2xAboveAvg = seq2x.status === 'due' || seq2x.status === 'overdue';
   const is5xAboveAvg = seq5x.status === 'due' || seq5x.status === 'overdue';
   const is10xAboveAvg = seq10x.status === 'due' || seq10x.status === 'overdue';
@@ -2278,14 +2997,26 @@ function analyzeBotDecision() {
   // ========================================
   const shouldActivateCycle = is10xAboveAvg && is15xAboveAvg && is20xAboveAvg;
 
+  // Log de diagnóstico das condições
+  console.log(`[Bot ${botId}] Análise de condições:`, {
+    '2x': { status: seq2x.status, aboveAvg: is2xAboveAvg },
+    '5x': { status: seq5x.status, aboveAvg: is5xAboveAvg },
+    '10x': { status: seq10x.status, aboveAvg: is10xAboveAvg },
+    '15x': { status: seq15x.status, aboveAvg: is15xAboveAvg },
+    '20x': { status: seq20x.status, aboveAvg: is20xAboveAvg },
+    shouldActivateCycle,
+    cycleActive: botState.adaptiveCycle.active
+  });
+
   // Se o ciclo estava ativo mas as condições não são mais válidas, reseta
-  if (bot.adaptiveCycle.active && !shouldActivateCycle) {
-    console.log('[Bot] 🔄 Ciclo adaptável DESATIVADO - condições não são mais válidas');
-    bot.adaptiveCycle.active = false;
-    bot.adaptiveCycle.currentTarget = 15;
-    bot.adaptiveCycle.attemptsAtCurrentTarget = 0;
-    bot.adaptiveCycle.totalCycleAttempts = 0;
-    saveBotState();
+  const hasPendingCycleBet = botState.activeBet && botState.activeBet.isHighOpportunity;
+  if (botState.adaptiveCycle.active && !shouldActivateCycle && !hasPendingCycleBet) {
+    console.log(`[Bot ${botId}] Ciclo adaptável DESATIVADO - condições não são mais válidas`);
+    botState.adaptiveCycle.active = false;
+    botState.adaptiveCycle.currentTarget = 15;
+    botState.adaptiveCycle.attemptsAtCurrentTarget = 0;
+    botState.adaptiveCycle.totalCycleAttempts = 0;
+    saveBotState(botId);
   }
 
   if (shouldActivateCycle) {
@@ -2293,44 +3024,65 @@ function analyzeBotDecision() {
     isHighOpportunity = true;
 
     // Ativa o ciclo se ainda não estiver ativo
-    if (!bot.adaptiveCycle.active) {
-      bot.adaptiveCycle.active = true;
-      bot.adaptiveCycle.currentTarget = 15; // Começa tentando 15x
-      bot.adaptiveCycle.attemptsAtCurrentTarget = 0;
-      bot.adaptiveCycle.totalCycleAttempts = 0;
-      console.log('[Bot] 🔄 Ciclo adaptável ATIVADO - 10x/15x/20x acima da média - Começando com alvo 15x');
+    if (!botState.adaptiveCycle.active) {
+      botState.adaptiveCycle.active = true;
+      botState.adaptiveCycle.attemptsAtCurrentTarget = 0;
+      botState.adaptiveCycle.totalCycleAttempts = 0;
+      console.log(`[Bot ${botId}] Ciclo adaptável ATIVADO - 10x/15x/20x acima da média`);
     }
 
-    // Usa o alvo do ciclo adaptável
-    const cycleTarget = bot.adaptiveCycle.currentTarget;
-    targetCashout2 = cycleTarget === 15 ? BOT_CONFIG.cashout2VeryHigh : BOT_CONFIG.cashout2High;
+    // ====================================================
+    // DETERMINA O ALVO BASEADO NAS CONDIÇÕES DE 2x E 5x
+    // ====================================================
+    let cycleTarget;
+    let targetReason;
+
+    if (is2xAboveAvg && is5xAboveAvg) {
+      cycleTarget = 15;
+      targetCashout2 = botConfig.cashout2VeryHigh;
+      targetReason = '2x E 5x acima da média -> alvo 15x';
+    } else if (is2xAboveAvg || is5xAboveAvg) {
+      cycleTarget = 10;
+      targetCashout2 = botConfig.cashout2High;
+      targetReason = `${is2xAboveAvg ? '2x' : '5x'} acima da média -> alvo 10x`;
+    } else {
+      cycleTarget = 7;
+      targetCashout2 = botConfig.cashout2Medium;
+      targetReason = '2x e 5x normais -> alvo 7x';
+    }
+
+    // Atualiza o alvo atual do ciclo
+    botState.adaptiveCycle.currentTarget = cycleTarget;
 
     // Informações do ciclo
-    const attemptNum = bot.adaptiveCycle.attemptsAtCurrentTarget + 1;
-    const maxAttempts = bot.adaptiveCycle.maxAttempts;
+    const attemptNum = botState.adaptiveCycle.totalCycleAttempts + 1;
 
-    reasons.push(`🔥 10x/15x/20x TODOS ACIMA DA MÉDIA`);
+    reasons.push(`10x/15x/20x TODOS ACIMA DA MEDIA`);
     reasons.push(`10x: ${seq10x.currentStreak}/${Math.round(seq10x.avgRoundsToHit)} (${seq10x.status})`);
     reasons.push(`15x: ${seq15x.currentStreak}/${Math.round(seq15x.avgRoundsToHit)} (${seq15x.status})`);
     reasons.push(`20x: ${seq20x.currentStreak}/${Math.round(seq20x.avgRoundsToHit)} (${seq20x.status})`);
-    reasons.push(`🔄 Ciclo: tentativa ${attemptNum}/${maxAttempts} → alvo ${cycleTarget}x`);
+    reasons.push(`---`);
+    reasons.push(`2x: ${seq2x.currentStreak}/${Math.round(seq2x.avgRoundsToHit)} (${seq2x.status}) ${is2xAboveAvg ? 'OK' : 'X'}`);
+    reasons.push(`5x: ${seq5x.currentStreak}/${Math.round(seq5x.avgRoundsToHit)} (${seq5x.status}) ${is5xAboveAvg ? 'OK' : 'X'}`);
+    reasons.push(`${targetReason}`);
+    reasons.push(`Tentativa #${attemptNum} -> cashout ${cycleTarget}x`);
 
   // ========================================
   // REGRA 2: Aposta Padrão (2x OU 5x acima da média)
   // ========================================
   } else if (is2xAboveAvg || is5xAboveAvg) {
     shouldBet = true;
-    targetCashout2 = BOT_CONFIG.cashout2Default; // 5.10x
+    targetCashout2 = botConfig.cashout2Default;
 
     if (is2xAboveAvg) {
-      const icon = seq2x.status === 'overdue' ? '🔥' : '✅';
+      const icon = seq2x.status === 'overdue' ? '[!]' : '[OK]';
       reasons.push(`${icon} 2x ${seq2x.status.toUpperCase()}: ${seq2x.currentStreak} rodadas (média: ${Math.round(seq2x.avgRoundsToHit)})`);
     }
     if (is5xAboveAvg) {
-      const icon = seq5x.status === 'overdue' ? '🔥' : '✅';
+      const icon = seq5x.status === 'overdue' ? '[!]' : '[OK]';
       reasons.push(`${icon} 5x ${seq5x.status.toUpperCase()}: ${seq5x.currentStreak} rodadas (média: ${Math.round(seq5x.avgRoundsToHit)})`);
     }
-    reasons.push(`→ Aposta padrão: ~2.10x e ~5.10x`);
+    reasons.push(`-> Aposta padrão: ~2.10x e ~5.10x`);
 
   // ========================================
   // NÃO APOSTAR: Aguardando condições
@@ -2338,64 +3090,84 @@ function analyzeBotDecision() {
   } else {
     reasons.push(`2x: ${seq2x.status} (${seq2x.currentStreak}/${Math.round(seq2x.avgRoundsToHit)})`);
     reasons.push(`5x: ${seq5x.status} (${seq5x.currentStreak}/${Math.round(seq5x.avgRoundsToHit)})`);
-    reasons.push('→ Aguardando 2x ou 5x ficar overdue');
+    reasons.push('-> Aguardando 2x ou 5x ficar overdue');
+  }
+
+  // Adiciona informações de gestão de risco quando vai apostar
+  if (shouldBet) {
+    reasons.push(`---`);
+    reasons.push(`Aposta: ${formatCurrency(betSizeInfo.amount)} x2 = ${formatCurrency(betSizeInfo.amount * 2)}`);
+    if (betSizeInfo.isReduced) {
+      reasons.push(`${betSizeInfo.reasons.join(', ')}`);
+    }
+    reasons.push(`Cashout 1: ${cashout1Info.base}x (${cashout1Info.reason})`);
+
+    // Mostra status de risco
+    const riskStats = getRiskStats(botId);
+    if (riskStats.consecutiveLosses > 0) {
+      reasons.push(`Perdas seguidas: ${riskStats.consecutiveLosses}`);
+    }
   }
 
   return {
     shouldBet,
     reasons,
     targetCashout2,
-    isHighOpportunity
+    isHighOpportunity,
+    betSizeInfo,
+    cashout1Info
   };
 }
 
 /**
  * Atualiza a decisão do bot e renderiza
  */
-function updateBotDecision() {
-  const decision = analyzeBotDecision();
-  bot.lastDecision = decision;
-  renderBotDecision(decision);
+function updateBotDecision(botId = activeBotTab) {
+  const botState = bots[botId].state;
+  const decision = analyzeBotDecision(botId);
+  botState.lastDecision = decision;
+  renderBotDecision(decision, botId);
 }
 
 /**
  * Renderiza a decisão do bot
  */
-function renderBotDecision(decision) {
-  if (!botElements.decisionBox || !botElements.decisionContent) return;
+function renderBotDecision(decision, botId = activeBotTab) {
+  const elements = getBotElements(botId);
+  const botState = bots[botId].state;
+
+  if (!elements.decisionBox || !elements.decisionContent) return;
 
   // Remove classes anteriores
-  botElements.decisionBox.classList.remove('should-bet', 'should-wait', 'high-opportunity');
+  elements.decisionBox.classList.remove('should-bet', 'should-wait', 'high-opportunity');
 
-  if (!bot.active) {
-    botElements.decisionContent.innerHTML = '<p class="bot-waiting">Aguardando ativação...</p>';
+  if (!botState.active) {
+    elements.decisionContent.innerHTML = '<p class="bot-waiting">Aguardando ativação...</p>';
     return;
   }
 
   // Define classe do box
   if (decision.isHighOpportunity) {
-    botElements.decisionBox.classList.add('high-opportunity');
+    elements.decisionBox.classList.add('high-opportunity');
   } else if (decision.shouldBet) {
-    botElements.decisionBox.classList.add('should-bet');
+    elements.decisionBox.classList.add('should-bet');
   } else {
-    botElements.decisionBox.classList.add('should-wait');
+    elements.decisionBox.classList.add('should-wait');
   }
 
   // Monta HTML
   let actionClass = decision.shouldBet ? (decision.isHighOpportunity ? 'high' : 'bet') : 'wait';
-  let actionIcon = decision.shouldBet ? (decision.isHighOpportunity ? '🚀' : '✅') : '⏳';
   let actionText = decision.shouldBet ? (decision.isHighOpportunity ? 'OPORTUNIDADE RARA!' : 'APOSTAR') : 'AGUARDAR';
 
   let html = `
     <div class="decision-action ${actionClass}">
-      <span>${actionIcon}</span>
       <span>${actionText}</span>
     </div>
     <div class="decision-reasons">
       ${decision.reasons.map(r => {
         let reasonClass = '';
-        if (r.includes('✅') || r.includes('🔥')) reasonClass = 'positive';
-        else if (r.includes('→') || r.includes('⚡')) reasonClass = 'highlight';
+        if (r.includes('[OK]') || r.includes('ACIMA')) reasonClass = 'positive';
+        else if (r.includes('->') || r.includes('Aposta')) reasonClass = 'highlight';
         return `<div class="decision-reason ${reasonClass}">${r}</div>`;
       }).join('')}
     </div>
@@ -2409,58 +3181,65 @@ function renderBotDecision(decision) {
     `;
   }
 
-  botElements.decisionContent.innerHTML = html;
+  elements.decisionContent.innerHTML = html;
 }
 
 /**
  * Coloca aposta automática do bot
  */
-async function placeBotBet(decision) {
-  console.log('[Bot] placeBotBet chamado. Estado:', {
-    active: bot.active,
-    hasActiveBet: !!bot.activeBet,
+async function placeBotBet(botId, decision) {
+  const botState = bots[botId].state;
+  const botConfig = bots[botId].config;
+
+  console.log(`[Bot ${botId}] placeBotBet chamado. Estado:`, {
+    active: botState.active,
+    hasActiveBet: !!botState.activeBet,
     shouldBet: decision?.shouldBet,
-    liveMode: bot.liveMode,
-    balanceAtual: bot.balance
+    liveMode: botState.liveMode,
+    balanceAtual: botState.balance
   });
 
-  if (!bot.active) {
-    console.log('[Bot] Aposta ignorada: bot não está ativo');
+  if (!botState.active) {
+    console.log(`[Bot ${botId}] Aposta ignorada: bot não está ativo`);
     return;
   }
-  if (bot.activeBet) {
-    console.log('[Bot] Aposta ignorada: já existe aposta ativa');
+  if (botState.activeBet) {
+    console.log(`[Bot ${botId}] Aposta ignorada: já existe aposta ativa`);
     return;
   }
   if (!decision.shouldBet) {
-    console.log('[Bot] Aposta ignorada: decisão é não apostar');
+    console.log(`[Bot ${botId}] Aposta ignorada: decisão é não apostar`);
     return;
   }
 
-  const totalAmount = BOT_CONFIG.betAmount * 2;
-  console.log(`[Bot] COLOCANDO APOSTA: R$ ${totalAmount} (Saldo antes: ${formatCurrency(bot.balance)})`);
+  // Usa tamanho de aposta dinâmico baseado em gestão de risco
+  const betAmount = decision.betSizeInfo ? decision.betSizeInfo.amount : botConfig.betAmount;
+  const totalAmount = betAmount * 2;
+  console.log(`[Bot ${botId}] COLOCANDO APOSTA: R$ ${totalAmount} (Saldo antes: ${formatCurrency(botState.balance)})`);
 
-  // Gera valores de cashout randomizados para simular cliques humanos
-  // Para o primeiro cashout (base 2.0), gera entre 2.03 e 2.17
-  const randomCashout1 = randomizeCashout(2.0);
+  // Usa primeiro cashout dinâmico baseado em condições
+  const randomCashout1 = decision.cashout1Info ? decision.cashout1Info.cashout : randomizeCashout(2.0, 0.01, 0.05);
   // Para o segundo cashout, usa o valor base da decisão e randomiza
   const baseCashout2 = decision.targetCashout2;
   const randomCashout2 = randomizeCashout(baseCashout2);
 
-  console.log(`[Bot] Cashouts randomizados: ${randomCashout1}x (base 2.0) e ${randomCashout2}x (base ${baseCashout2})`);
+  console.log(`[Bot ${botId}] Cashouts: ${randomCashout1}x (base ${decision.cashout1Info?.base || 2.0}) e ${randomCashout2}x (base ${baseCashout2})`);
+  if (decision.betSizeInfo?.isReduced) {
+    console.log(`[Bot ${botId}] Aposta REDUZIDA: ${decision.betSizeInfo.reasons.join(', ')}`);
+  }
 
   // Se está em modo live, faz aposta real
-  if (bot.liveMode) {
+  if (botState.liveMode) {
     try {
-      console.log(`[Bot] Colocando aposta REAL: R$${totalAmount} | Alvos: ${randomCashout1}x e ${randomCashout2}x`);
+      console.log(`[Bot ${botId}] Colocando aposta REAL: R$${totalAmount} | Alvos: ${randomCashout1}x e ${randomCashout2}x`);
 
-      const response = await fetch('/api/live-betting/bet', {
+      const response = await fetch(`${observerApiUrl}/api/live-betting/bet`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          amount1: BOT_CONFIG.betAmount,
+          amount1: betAmount,
           cashout1: randomCashout1,
-          amount2: BOT_CONFIG.betAmount,
+          amount2: betAmount,
           cashout2: randomCashout2
         })
       });
@@ -2468,40 +3247,37 @@ async function placeBotBet(decision) {
       const result = await response.json();
 
       if (!result.success) {
-        console.error('[Bot] Erro ao colocar aposta real:', result.error);
+        console.error(`[Bot ${botId}] Erro ao colocar aposta real:`, result.error);
         return;
       }
 
-      console.log('[Bot] Aposta REAL colocada com sucesso!');
+      console.log(`[Bot ${botId}] Aposta REAL colocada com sucesso!`);
     } catch (err) {
-      console.error('[Bot] Erro ao colocar aposta real:', err);
+      console.error(`[Bot ${botId}] Erro ao colocar aposta real:`, err);
       return;
     }
   }
 
   // Registra aposta (simulação ou tracking de aposta real)
-  bot.activeBet = {
-    amount: BOT_CONFIG.betAmount,
+  botState.activeBet = {
+    amount: betAmount,
     cashout1: randomCashout1,
     cashout2: randomCashout2,
-    baseCashout2: baseCashout2, // Mantém o valor base para referência
+    baseCashout2: baseCashout2,
+    baseCashout1: decision.cashout1Info?.base || 2.0,
     isHighOpportunity: decision.isHighOpportunity,
-    isLive: bot.liveMode
+    isLive: botState.liveMode,
+    isReducedBet: decision.betSizeInfo?.isReduced || false
   };
 
-  // SEMPRE debita do saldo ao colocar aposta (simulação ou live para tracking)
-  const balanceBefore = bot.balance;
-  bot.balance -= totalAmount;
-  console.log(`[Bot] *** SALDO ATUALIZADO ***`);
-  console.log(`[Bot] Antes: ${formatCurrency(balanceBefore)}`);
-  console.log(`[Bot] Aposta: -${formatCurrency(totalAmount)}`);
-  console.log(`[Bot] Depois: ${formatCurrency(bot.balance)}`);
+  // SEMPRE debita do saldo ao colocar aposta
+  const balanceBefore = botState.balance;
+  botState.balance -= totalAmount;
+  console.log(`[Bot ${botId}] SALDO: ${formatCurrency(balanceBefore)} -> ${formatCurrency(botState.balance)} (-${formatCurrency(totalAmount)})`);
 
-  console.log(`[Bot] Aposta ${bot.liveMode ? 'REAL' : 'simulada'} colocada | Alvos: ${randomCashout1}x e ${randomCashout2}x`);
-
-  saveBotState();
-  renderBot();
-  console.log(`[Bot] Estado salvo e UI renderizada. Saldo atual: ${formatCurrency(bot.balance)}`);
+  saveBotState(botId);
+  renderBot(botId);
+  updateBotTabBalance(botId);
 }
 
 /**
@@ -2509,7 +3285,7 @@ async function placeBotBet(decision) {
  */
 async function fetchPlatformHistory() {
   try {
-    const response = await fetch('/api/live-betting/history?limit=10');
+    const response = await fetch(`${observerApiUrl}/api/live-betting/history?limit=10`);
     const result = await response.json();
 
     if (result.success && result.history) {
@@ -2526,10 +3302,12 @@ async function fetchPlatformHistory() {
  * Resolve a aposta do bot com o resultado da rodada
  * Em modo live, busca os dados reais da plataforma
  */
-async function resolveBotBet(roundMultiplier) {
-  if (!bot.activeBet) return;
+async function resolveBotBet(botId, roundMultiplier) {
+  const botState = bots[botId].state;
 
-  const bet = bot.activeBet;
+  if (!botState.activeBet) return;
+
+  const bet = botState.activeBet;
   const betAmount = bet.amount;
   const totalBet = betAmount * 2;
   let winnings = 0;
@@ -2540,44 +3318,33 @@ async function resolveBotBet(roundMultiplier) {
 
   // Em modo LIVE, busca os dados reais da plataforma
   if (bet.isLive) {
-    console.log('[Bot] Modo LIVE: Buscando dados reais da plataforma...');
+    console.log(`[Bot ${botId}] Modo LIVE: Buscando dados reais da plataforma...`);
 
-    // Aguarda um pouco para a plataforma atualizar a tabela
     await new Promise(r => setTimeout(r, 1000));
-
     const platformHistory = await fetchPlatformHistory();
 
     if (platformHistory.length >= 2) {
-      // As 2 primeiras entradas são as apostas mais recentes (ordem decrescente)
-      // Cada rodada tem 2 apostas (bet1 e bet2)
       const bet1Data = platformHistory[0];
       const bet2Data = platformHistory[1];
 
-      console.log('[Bot] Dados da plataforma:', { bet1: bet1Data, bet2: bet2Data });
+      console.log(`[Bot ${botId}] Dados da plataforma:`, { bet1: bet1Data, bet2: bet2Data });
 
-      // Usa os valores reais de ganho
       won1 = bet1Data.isWin;
       won2 = bet2Data.isWin;
       realCashout1 = bet1Data.cashoutMultiplier;
       realCashout2 = bet2Data.cashoutMultiplier;
-
-      // Ganhos reais da plataforma
       winnings = bet1Data.winAmount + bet2Data.winAmount;
 
-      console.log(`[Bot] Resultados REAIS da plataforma:`);
-      console.log(`[Bot]   Aposta 1: ${won1 ? 'GANHOU' : 'PERDEU'} (cashout ${realCashout1}x) = ${formatCurrency(bet1Data.winAmount)}`);
-      console.log(`[Bot]   Aposta 2: ${won2 ? 'GANHOU' : 'PERDEU'} (cashout ${realCashout2}x) = ${formatCurrency(bet2Data.winAmount)}`);
-      console.log(`[Bot]   Total ganho: ${formatCurrency(winnings)}`);
+      console.log(`[Bot ${botId}] Resultados REAIS: Aposta1=${won1 ? 'GANHOU' : 'PERDEU'}, Aposta2=${won2 ? 'GANHOU' : 'PERDEU'}, Total=${formatCurrency(winnings)}`);
     } else {
-      console.warn('[Bot] Não foi possível obter dados reais, usando cálculo simulado');
-      // Fallback para cálculo simulado
+      console.warn(`[Bot ${botId}] Não foi possível obter dados reais, usando cálculo simulado`);
       won1 = roundMultiplier >= bet.cashout1;
       won2 = roundMultiplier >= bet.cashout2;
       if (won1) winnings += betAmount * bet.cashout1;
       if (won2) winnings += betAmount * bet.cashout2;
     }
   } else {
-    // Modo simulação: calcula baseado nos alvos definidos
+    // Modo simulação
     won1 = roundMultiplier >= bet.cashout1;
     won2 = roundMultiplier >= bet.cashout2;
 
@@ -2593,44 +3360,41 @@ async function resolveBotBet(roundMultiplier) {
 
   const profit = winnings - totalBet;
 
-  // Adiciona os ganhos ao saldo (já foi subtraído quando a aposta foi colocada)
-  const balanceBefore = bot.balance;
-  bot.balance += winnings;
+  // Adiciona os ganhos ao saldo
+  const balanceBefore = botState.balance;
+  botState.balance += winnings;
 
-  console.log(`[Bot] *** RESULTADO DA APOSTA ${bet.isLive ? '(LIVE)' : '(SIMULAÇÃO)'} ***`);
-  console.log(`[Bot] Multiplicador da rodada: ${roundMultiplier}x`);
-  console.log(`[Bot] Aposta 1: ${won1 ? 'GANHOU' : 'PERDEU'}${realCashout1 > 0 ? ` @ ${realCashout1}x` : ''}`);
-  console.log(`[Bot] Aposta 2: ${won2 ? 'GANHOU' : 'PERDEU'}${realCashout2 > 0 ? ` @ ${realCashout2}x` : ''}`);
-  console.log(`[Bot] Saldo: ${formatCurrency(balanceBefore)} + ${formatCurrency(winnings)} (ganhos) = ${formatCurrency(bot.balance)}`);
-  console.log(`[Bot] Lucro líquido: ${formatCurrency(profit)}`);
+  console.log(`[Bot ${botId}] RESULTADO: Mult=${roundMultiplier}x | Ganho=${formatCurrency(winnings)} | Lucro=${formatCurrency(profit)} | Saldo: ${formatCurrency(balanceBefore)} -> ${formatCurrency(botState.balance)}`);
 
   // Considera vitória se teve lucro positivo
   const won = profit > 0;
 
   // Atualiza estatísticas
-  bot.stats.totalBets++;
-  bot.stats.totalWagered += totalBet;
-  bot.stats.totalProfit += profit;
+  botState.stats.totalBets++;
+  botState.stats.totalWagered += totalBet;
+  botState.stats.totalProfit += profit;
 
   if (won) {
-    bot.stats.wins++;
+    botState.stats.wins++;
   } else {
-    bot.stats.losses++;
+    botState.stats.losses++;
   }
+
+  // Atualiza estado de gestão de risco
+  updateRiskStateAfterBet(botId, won, profit);
 
   // Determina resultado
   let resultText;
   if (won1 && won2) {
     resultText = 'JACKPOT';
   } else if (won1 || won2) {
-    // Parcial: uma das apostas deu lucro
     resultText = 'PARCIAL';
   } else {
     resultText = 'PERDA';
   }
 
   // Adiciona ao histórico
-  bot.history.push({
+  botState.history.push({
     id: Date.now(),
     timestamp: new Date().toISOString(),
     multiplier: roundMultiplier,
@@ -2639,165 +3403,179 @@ async function resolveBotBet(roundMultiplier) {
     won1,
     won2,
     profit,
-    balance: bot.balance,
+    balance: botState.balance,
     resultText,
     isHighOpportunity: bet.isHighOpportunity
   });
 
-  console.log(`[Bot] Resultado: ${resultText} | Mult: ${roundMultiplier}x | Lucro: ${formatCurrency(profit)}`);
-
-  // Atualiza ciclo adaptável se estiver ativo
-  if (bot.adaptiveCycle.active && bet.isHighOpportunity) {
-    updateAdaptiveCycle(won2, roundMultiplier);
+  // Atualiza ciclo adaptável se a aposta foi do ciclo
+  if (bet.isHighOpportunity && botState.adaptiveCycle.active) {
+    updateAdaptiveCycle(botId, won2, roundMultiplier);
   }
 
   // Limpa aposta ativa
-  bot.activeBet = null;
+  botState.activeBet = null;
 
-  saveBotState();
-  renderBot();
+  saveBotState(botId);
+  renderBot(botId);
+  updateBotTabBalance(botId);
 
   // Sincroniza saldo com a plataforma após cada aposta (modo live)
-  if (bot.liveMode) {
-    // Pequeno delay para garantir que a plataforma atualizou o saldo
-    setTimeout(() => syncPlatformBalance(), 1000);
+  if (botState.liveMode) {
+    setTimeout(() => syncPlatformBalance(botId), 1000);
   }
 }
 
 /**
  * Atualiza o ciclo adaptável baseado no resultado da aposta
- * @param {boolean} hitTarget - Se a segunda aposta (alvo alto) foi bem sucedida
- * @param {number} multiplier - O multiplicador da rodada
  */
-function updateAdaptiveCycle(hitTarget, multiplier) {
-  const cycle = bot.adaptiveCycle;
+function updateAdaptiveCycle(botId, hitTarget, multiplier) {
+  const botState = bots[botId].state;
+  const cycle = botState.adaptiveCycle;
   const currentTarget = cycle.currentTarget;
 
-  cycle.attemptsAtCurrentTarget++;
   cycle.totalCycleAttempts++;
 
-  console.log(`[Bot] 🔄 Ciclo adaptável - Tentativa ${cycle.attemptsAtCurrentTarget}/${cycle.maxAttempts} no alvo ${currentTarget}x`);
+  console.log(`[Bot ${botId}] Ciclo adaptável - Tentativa #${cycle.totalCycleAttempts} (alvo era ${currentTarget}x)`);
 
   if (hitTarget) {
-    // Acertou o alvo! Reseta o ciclo
-    console.log(`[Bot] ✅ ACERTOU ${currentTarget}x na rodada ${multiplier}x! Ciclo resetado.`);
+    console.log(`[Bot ${botId}] ACERTOU ${currentTarget}x na rodada ${multiplier}x! Ciclo resetado.`);
     cycle.active = false;
     cycle.currentTarget = 15;
     cycle.attemptsAtCurrentTarget = 0;
     cycle.totalCycleAttempts = 0;
     cycle.lastHitTarget = currentTarget;
   } else {
-    // Não acertou - verifica se precisa mudar de alvo
-    if (cycle.attemptsAtCurrentTarget >= cycle.maxAttempts) {
-      // Mudou para o outro alvo
-      const newTarget = currentTarget === 15 ? 10 : 15;
-      console.log(`[Bot] 🔄 ${cycle.maxAttempts} tentativas em ${currentTarget}x falharam. Mudando para ${newTarget}x`);
+    console.log(`[Bot ${botId}] Não atingiu ${currentTarget}x (mult: ${multiplier}x). Total: ${cycle.totalCycleAttempts}`);
+  }
+}
 
-      cycle.currentTarget = newTarget;
-      cycle.attemptsAtCurrentTarget = 0;
+/**
+ * Atualiza o saldo exibido na aba do bot
+ */
+function updateBotTabBalance(botId) {
+  const botState = bots[botId].state;
+  const tabBalanceEl = document.getElementById(`${botId}TabBalance`);
+  if (tabBalanceEl) {
+    tabBalanceEl.textContent = formatCurrency(botState.balance);
+  }
+  // Atualiza também as estatísticas combinadas
+  updateCombinedStats();
+}
 
-      // Se já tentou 15x e 10x (6 tentativas no total), o ciclo continua
-      // até acertar ou as sequências voltarem ao normal
-      if (cycle.totalCycleAttempts >= 6) {
-        console.log(`[Bot] 🔄 Ciclo completo (${cycle.totalCycleAttempts} tentativas). Voltando para ${newTarget}x`);
-      }
-    } else {
-      console.log(`[Bot] ❌ Não atingiu ${currentTarget}x (mult: ${multiplier}x). Próxima tentativa: ${cycle.attemptsAtCurrentTarget + 1}/${cycle.maxAttempts}`);
-    }
+/**
+ * Atualiza estatísticas combinadas dos dois bots
+ */
+function updateCombinedStats() {
+  const stats = getCombinedStats();
+  const combinedBalanceEl = document.getElementById('combinedBalance');
+  const combinedProfitEl = document.getElementById('combinedProfit');
+
+  if (combinedBalanceEl) {
+    combinedBalanceEl.textContent = formatCurrency(stats.totalBalance);
+  }
+  if (combinedProfitEl) {
+    combinedProfitEl.textContent = formatCurrency(stats.totalProfit);
+    combinedProfitEl.className = stats.totalProfit >= 0 ? 'positive' : 'negative';
   }
 }
 
 /**
  * Renderiza o bot
  */
-function renderBot() {
-  if (!botElements.balance) return;
+function renderBot(botId = activeBotTab) {
+  const elements = getBotElements(botId);
+  const botState = bots[botId].state;
+
+  if (!elements.balance) return;
 
   // Status
-  if (botElements.statusIndicator) {
-    botElements.statusIndicator.classList.toggle('active', bot.active);
-    botElements.statusIndicator.classList.toggle('live', bot.active && bot.liveMode);
+  if (elements.statusIndicator) {
+    elements.statusIndicator.classList.toggle('active', botState.active);
+    elements.statusIndicator.classList.toggle('live', botState.active && botState.liveMode);
   }
-  if (botElements.statusText) {
-    let statusText = bot.active ? 'Ativo' : 'Desativado';
-    if (bot.active && bot.liveMode) {
+  if (elements.statusText) {
+    let statusText = botState.active ? 'Ativo' : 'Desativado';
+    if (botState.active && botState.liveMode) {
       statusText = 'LIVE';
     }
-    botElements.statusText.textContent = statusText;
+    elements.statusText.textContent = statusText;
   }
-  if (botElements.toggleBtn) {
-    botElements.toggleBtn.textContent = bot.active ? 'Desativar Bot' : 'Ativar Bot';
-    botElements.toggleBtn.classList.toggle('active', bot.active);
-  }
-
-  // Indicação visual proeminente quando bot ativo
-  const simulatorSection = document.querySelector('.simulator-section');
-  const statusBar = document.querySelector('.bot-status-bar');
-  const runningBadge = document.getElementById('botRunningBadge');
-
-  if (simulatorSection) {
-    simulatorSection.classList.toggle('bot-running', bot.active);
-    simulatorSection.classList.toggle('live-mode', bot.active && bot.liveMode);
+  if (elements.toggleBtn) {
+    elements.toggleBtn.textContent = botState.active ? 'Desativar Bot' : 'Ativar Bot';
+    elements.toggleBtn.classList.toggle('active', botState.active);
   }
 
-  if (statusBar) {
-    statusBar.classList.toggle('bot-active', bot.active);
-    statusBar.classList.toggle('live-mode', bot.active && bot.liveMode);
-  }
+  // Indicação visual quando bot ativo (apenas se for o bot visível)
+  if (botId === activeBotTab) {
+    const simulatorSection = document.querySelector('.simulator-section');
+    const statusBar = document.querySelector('.bot-status-bar');
+    const runningBadge = document.getElementById('botRunningBadge');
 
-  if (runningBadge) {
-    runningBadge.classList.toggle('live', bot.liveMode);
-    runningBadge.textContent = bot.liveMode ? 'BOT LIVE' : 'BOT ATIVO';
+    if (simulatorSection) {
+      simulatorSection.classList.toggle('bot-running', botState.active);
+      simulatorSection.classList.toggle('live-mode', botState.active && botState.liveMode);
+    }
+
+    if (statusBar) {
+      statusBar.classList.toggle('bot-active', botState.active);
+      statusBar.classList.toggle('live-mode', botState.active && botState.liveMode);
+    }
+
+    if (runningBadge) {
+      runningBadge.classList.toggle('live', botState.liveMode);
+      runningBadge.textContent = botState.liveMode ? 'BOT LIVE' : 'BOT ATIVO';
+    }
   }
 
   // Live mode UI
-  updateLiveModeUI();
-  if (botElements.liveModeToggle) {
-    botElements.liveModeToggle.checked = bot.liveMode;
+  updateLiveModeUI(botId);
+  if (elements.liveModeToggle) {
+    elements.liveModeToggle.checked = botState.liveMode;
   }
 
   // Banca
-  botElements.balance.textContent = formatCurrency(bot.balance);
-  botElements.balance.className = `balance-value ${bot.balance >= bot.initialBalance ? 'positive' : 'negative'}`;
+  elements.balance.textContent = formatCurrency(botState.balance);
+  elements.balance.className = `balance-value ${botState.balance >= botState.initialBalance ? 'positive' : 'negative'}`;
 
   // Estatísticas
-  if (botElements.totalBets) {
-    botElements.totalBets.textContent = bot.stats.totalBets;
+  if (elements.totalBets) {
+    elements.totalBets.textContent = botState.stats.totalBets;
   }
-  if (botElements.wins) {
-    const winRate = bot.stats.totalBets > 0 ? ((bot.stats.wins / bot.stats.totalBets) * 100).toFixed(1) : 0;
-    botElements.wins.textContent = `${bot.stats.wins} (${winRate}%)`;
+  if (elements.wins) {
+    const winRate = botState.stats.totalBets > 0 ? ((botState.stats.wins / botState.stats.totalBets) * 100).toFixed(1) : 0;
+    elements.wins.textContent = `${botState.stats.wins} (${winRate}%)`;
   }
-  if (botElements.profit) {
-    const profitClass = bot.stats.totalProfit >= 0 ? 'positive' : 'negative';
-    botElements.profit.textContent = formatCurrency(bot.stats.totalProfit);
-    botElements.profit.className = `sim-stat-value ${profitClass}`;
+  if (elements.profit) {
+    const profitClass = botState.stats.totalProfit >= 0 ? 'positive' : 'negative';
+    elements.profit.textContent = formatCurrency(botState.stats.totalProfit);
+    elements.profit.className = `sim-stat-value ${profitClass}`;
   }
-  if (botElements.roi) {
-    const roi = bot.stats.totalWagered > 0 ? ((bot.stats.totalProfit / bot.stats.totalWagered) * 100).toFixed(1) : 0;
-    botElements.roi.textContent = `${roi}%`;
-    botElements.roi.className = `sim-stat-value ${parseFloat(roi) >= 0 ? 'positive' : 'negative'}`;
+  if (elements.roi) {
+    const roi = botState.stats.totalWagered > 0 ? ((botState.stats.totalProfit / botState.stats.totalWagered) * 100).toFixed(1) : 0;
+    elements.roi.textContent = `${roi}%`;
+    elements.roi.className = `sim-stat-value ${parseFloat(roi) >= 0 ? 'positive' : 'negative'}`;
   }
 
   // Aposta ativa
-  if (botElements.activeBet) {
-    if (bot.activeBet) {
-      botElements.activeBet.classList.remove('hidden');
-      if (botElements.betStatus) {
-        botElements.betStatus.textContent = 'Aguardando resultado...';
+  if (elements.activeBet) {
+    if (botState.activeBet) {
+      elements.activeBet.classList.remove('hidden');
+      if (elements.betStatus) {
+        elements.betStatus.textContent = 'Aguardando resultado...';
       }
-      if (botElements.betDetails) {
-        const betAmount = bot.activeBet.amount;
+      if (elements.betDetails) {
+        const betAmount = botState.activeBet.amount;
         const totalBet = betAmount * 2;
-        const maxWin = betAmount * bot.activeBet.cashout1 + betAmount * bot.activeBet.cashout2;
-        botElements.betDetails.innerHTML = `
+        const maxWin = betAmount * botState.activeBet.cashout1 + betAmount * botState.activeBet.cashout2;
+        elements.betDetails.innerHTML = `
           <div class="bot-bet-row">
             <span>Aposta 1:</span>
-            <span>${formatCurrency(betAmount)} @ ${bot.activeBet.cashout1}x</span>
+            <span>${formatCurrency(betAmount)} @ ${botState.activeBet.cashout1}x</span>
           </div>
           <div class="bot-bet-row">
             <span>Aposta 2:</span>
-            <span>${formatCurrency(betAmount)} @ ${bot.activeBet.cashout2}x</span>
+            <span>${formatCurrency(betAmount)} @ ${botState.activeBet.cashout2}x</span>
           </div>
           <div class="bot-bet-row">
             <span>Total apostado:</span>
@@ -2810,37 +3588,43 @@ function renderBot() {
         `;
       }
     } else {
-      botElements.activeBet.classList.add('hidden');
+      elements.activeBet.classList.add('hidden');
     }
   }
 
   // Histórico
-  renderBotHistory();
+  renderBotHistory(botId);
+
+  // Atualiza saldo na aba
+  updateBotTabBalance(botId);
 }
 
 /**
  * Renderiza histórico do bot
  */
-function renderBotHistory() {
-  if (!botElements.historyList) return;
+function renderBotHistory(botId = activeBotTab) {
+  const elements = getBotElements(botId);
+  const botState = bots[botId].state;
 
-  if (bot.history.length === 0) {
-    botElements.historyList.innerHTML = '<p class="no-history">Nenhuma aposta ainda</p>';
+  if (!elements.historyList) return;
+
+  if (botState.history.length === 0) {
+    elements.historyList.innerHTML = '<p class="no-history">Nenhuma aposta ainda</p>';
     return;
   }
 
   // Mostra as últimas 20 apostas (mais recentes primeiro)
-  const recent = bot.history.slice(-20).reverse();
+  const recent = botState.history.slice(-20).reverse();
 
-  botElements.historyList.innerHTML = recent.map(h => {
+  elements.historyList.innerHTML = recent.map(h => {
     let resultClass = 'loss';
     if (h.won1 && h.won2) resultClass = 'win';
-    else if (h.won1 || h.won2) resultClass = 'partial'; // Uma das apostas deu lucro
+    else if (h.won1 || h.won2) resultClass = 'partial';
 
     return `
       <div class="history-item ${resultClass}">
         <div class="history-main">
-          <span class="history-result">${h.resultText}${h.isHighOpportunity ? ' 🚀' : ''}</span>
+          <span class="history-result">${h.resultText}${h.isHighOpportunity ? ' [!]' : ''}</span>
           <span class="history-multiplier">${h.multiplier.toFixed(2)}x</span>
         </div>
         <div class="history-details">
@@ -2855,71 +3639,427 @@ function renderBotHistory() {
 }
 
 /**
- * Processa nova rodada para o bot
+ * Processa nova rodada para AMBOS os bots
  */
-async function processBotRound(round) {
+async function processAllBotsRound(round) {
+  // Processa ambos os bots
+  await processSingleBotRound('bot1', round);
+  await processSingleBotRound('bot2', round);
+}
+
+/**
+ * Processa nova rodada para um bot específico
+ */
+async function processSingleBotRound(botId, round) {
+  const botState = bots[botId].state;
+  const botConfig = bots[botId].config;
+
+  console.log(`[Bot ${botId}] processBotRound:`, {
+    multiplier: round.multiplier,
+    active: botState.active,
+    isProcessing: botState.isProcessing,
+    hasActiveBet: !!botState.activeBet
+  });
+
+  // Decrementa contador de pausa (gestão de risco)
+  decrementPauseCounter(botId);
+
   // Se o bot não está ativo, apenas atualiza a análise
-  if (!bot.active) {
-    updateBotDecision();
+  if (!botState.active) {
+    updateBotDecision(botId);
     return;
   }
 
   // Evita processamento duplo
-  if (bot.isProcessing) {
-    console.log('[Bot] Já processando, ignorando...');
+  if (botState.isProcessing) {
+    console.log(`[Bot ${botId}] Já processando, ignorando...`);
     return;
   }
 
   // Verifica tempo mínimo entre processamentos
   const now = Date.now();
-  if (now - bot.lastRoundTime < 3000) { // Mínimo 3 segundos entre rodadas
-    console.log('[Bot] Rodada muito próxima, ignorando...');
+  if (now - botState.lastRoundTime < 3000) {
+    console.log(`[Bot ${botId}] Rodada muito próxima, ignorando...`);
     return;
   }
 
-  bot.isProcessing = true;
-  bot.lastRoundTime = now;
+  botState.isProcessing = true;
+  botState.lastRoundTime = now;
 
-  console.log(`[Bot] Processando rodada: ${round.multiplier}x`);
+  console.log(`[Bot ${botId}] Processando rodada: ${round.multiplier}x`);
 
-  // Se tem aposta ativa, resolve primeiro (aguarda para obter dados reais em modo live)
-  if (bot.activeBet) {
-    await resolveBotBet(round.multiplier);
+  // Se tem aposta ativa, resolve primeiro
+  if (botState.activeBet) {
+    await resolveBotBet(botId, round.multiplier);
   }
 
-  // Aguarda o delay configurado antes de decidir a próxima aposta
-  // Isso dá tempo para a fase de apostas começar
-  console.log(`[Bot] Aguardando ${BOT_TIMING.delayAfterRound / 1000}s antes de analisar próxima aposta...`);
-
+  // Aguarda o delay configurado
   setTimeout(async () => {
     // Atualiza análise com os dados mais recentes
-    updateBotDecision();
+    updateBotDecision(botId);
 
-    // Verifica se ainda está ativo e pode apostar
-    if (!bot.active) {
-      bot.isProcessing = false;
+    // Verifica se ainda está ativo
+    if (!botState.active) {
+      botState.isProcessing = false;
       return;
     }
 
     // Verifica se tem saldo suficiente
-    const totalBet = BOT_CONFIG.betAmount * 2;
-    if (bot.balance < totalBet && !bot.liveMode) {
-      console.log('[Bot] Saldo insuficiente para apostar');
-      bot.isProcessing = false;
+    const totalBet = botConfig.betAmount * 2;
+    if (botState.balance < totalBet && !botState.liveMode) {
+      console.log(`[Bot ${botId}] Saldo insuficiente para apostar`);
+      botState.isProcessing = false;
       return;
     }
 
     // Se deve apostar e não tem aposta ativa, coloca aposta
-    if (bot.lastDecision && bot.lastDecision.shouldBet && !bot.activeBet) {
-      console.log('[Bot] Decisão: APOSTAR');
-      await placeBotBet(bot.lastDecision);
-    } else if (bot.lastDecision && !bot.lastDecision.shouldBet) {
-      console.log('[Bot] Decisão: AGUARDAR');
+    if (botState.lastDecision && botState.lastDecision.shouldBet && !botState.activeBet) {
+      console.log(`[Bot ${botId}] Decisão: APOSTAR`);
+      await placeBotBet(botId, botState.lastDecision);
+    } else if (botState.lastDecision && !botState.lastDecision.shouldBet) {
+      console.log(`[Bot ${botId}] Decisão: AGUARDAR`);
     }
 
-    bot.isProcessing = false;
+    botState.isProcessing = false;
   }, BOT_TIMING.delayAfterRound);
 }
 
+// Alias para compatibilidade
+async function processBotRound(round) {
+  await processAllBotsRound(round);
+}
+
+// ========== GERENCIAMENTO DE DADOS ==========
+
+const dataManagementElements = {
+  modal: null,
+  closeBtn: null,
+  manageBtn: null,
+  archiveBtn: null,
+  resetBtn: null,
+  archivesList: null
+};
+
+/**
+ * Inicializa elementos de gerenciamento de dados
+ */
+function initDataManagement() {
+  dataManagementElements.modal = document.getElementById('dataModal');
+  dataManagementElements.closeBtn = document.getElementById('dataModalClose');
+  dataManagementElements.manageBtn = document.getElementById('btnManageData');
+  dataManagementElements.archiveBtn = document.getElementById('btnArchiveDb');
+  dataManagementElements.resetBtn = document.getElementById('btnResetDb');
+  dataManagementElements.archivesList = document.getElementById('archivesList');
+
+  if (dataManagementElements.manageBtn) {
+    dataManagementElements.manageBtn.addEventListener('click', openDataModal);
+  }
+
+  if (dataManagementElements.closeBtn) {
+    dataManagementElements.closeBtn.addEventListener('click', closeDataModal);
+  }
+
+  if (dataManagementElements.modal) {
+    dataManagementElements.modal.addEventListener('click', (e) => {
+      if (e.target === dataManagementElements.modal) {
+        closeDataModal();
+      }
+    });
+  }
+
+  if (dataManagementElements.archiveBtn) {
+    dataManagementElements.archiveBtn.addEventListener('click', archiveDatabase);
+  }
+
+  if (dataManagementElements.resetBtn) {
+    dataManagementElements.resetBtn.addEventListener('click', resetDatabase);
+  }
+}
+
+/**
+ * Abre o modal de gerenciamento de dados
+ */
+function openDataModal() {
+  if (dataManagementElements.modal) {
+    dataManagementElements.modal.classList.add('active');
+    loadArchives();
+  }
+}
+
+/**
+ * Fecha o modal de gerenciamento de dados
+ */
+function closeDataModal() {
+  if (dataManagementElements.modal) {
+    dataManagementElements.modal.classList.remove('active');
+  }
+}
+
+/**
+ * Carrega lista de arquivos
+ */
+async function loadArchives() {
+  if (!dataManagementElements.archivesList) return;
+
+  dataManagementElements.archivesList.innerHTML = '<p class="loading-text">Carregando...</p>';
+
+  try {
+    const response = await fetch(`${observerApiUrl}/api/database/archives`);
+    const data = await response.json();
+
+    if (data.success && data.archives.length > 0) {
+      renderArchivesList(data.archives);
+    } else {
+      dataManagementElements.archivesList.innerHTML = `
+        <div class="no-archives">
+          <span>📂</span>
+          <p>Nenhum arquivo salvo</p>
+        </div>
+      `;
+    }
+  } catch (err) {
+    console.error('[Data] Erro ao carregar arquivos:', err);
+    dataManagementElements.archivesList.innerHTML = '<p class="error-text">Erro ao carregar arquivos</p>';
+  }
+}
+
+/**
+ * Renderiza lista de arquivos
+ */
+function renderArchivesList(archives) {
+  dataManagementElements.archivesList.innerHTML = archives.map(archive => `
+    <div class="archive-card" data-name="${archive.name}">
+      <div class="archive-header">
+        <span class="archive-name">${archive.name}</span>
+        <button class="archive-delete-btn" title="Deletar arquivo" data-name="${archive.name}">&times;</button>
+      </div>
+      <div class="archive-info">
+        <span>${archive.roundsCount} rodadas</span>
+        <span>${formatDateTime(archive.createdAt)}</span>
+      </div>
+      <div class="archive-actions">
+        <button class="btn btn-merge" data-name="${archive.name}" title="Adiciona dados do arquivo aos dados atuais">+ Mesclar</button>
+        <button class="btn btn-restore" data-name="${archive.name}" title="Substitui dados atuais pelos do arquivo">Substituir</button>
+      </div>
+    </div>
+  `).join('');
+
+  // Adiciona event listeners
+  dataManagementElements.archivesList.querySelectorAll('.btn-merge').forEach(btn => {
+    btn.addEventListener('click', () => mergeArchive(btn.dataset.name));
+  });
+
+  dataManagementElements.archivesList.querySelectorAll('.btn-restore').forEach(btn => {
+    btn.addEventListener('click', () => restoreArchive(btn.dataset.name));
+  });
+
+  dataManagementElements.archivesList.querySelectorAll('.archive-delete-btn').forEach(btn => {
+    btn.addEventListener('click', () => deleteArchive(btn.dataset.name));
+  });
+}
+
+/**
+ * Arquiva o banco de dados atual
+ */
+async function archiveDatabase() {
+  const name = prompt('Nome do arquivo (opcional, deixe em branco para usar timestamp):');
+  if (name === null) return; // Cancelado
+
+  try {
+    const response = await fetch(`${observerApiUrl}/api/database/archive`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: name || null })
+    });
+
+    const data = await response.json();
+
+    if (data.success) {
+      alert(`Dados arquivados com sucesso!\nNome: ${data.name}\nRodadas: ${data.roundsCount}`);
+      loadArchives();
+    } else {
+      alert(`Erro ao arquivar: ${data.error}`);
+    }
+  } catch (err) {
+    console.error('[Data] Erro ao arquivar:', err);
+    alert('Erro ao arquivar dados');
+  }
+}
+
+/**
+ * Reseta o banco de dados
+ */
+async function resetDatabase() {
+  const confirm1 = confirm('Isso vai APAGAR todos os dados atuais e começar do zero.\n\nDeseja arquivar os dados antes de resetar?');
+  if (confirm1 === null) return; // Cancelado
+
+  const archive = confirm1;
+
+  if (!archive) {
+    const confirm2 = confirm('ATENÇÃO: Os dados atuais serão PERDIDOS permanentemente!\n\nTem certeza que deseja continuar SEM arquivar?');
+    if (!confirm2) return;
+  }
+
+  try {
+    const response = await fetch(`${observerApiUrl}/api/database/reset`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ archive })
+    });
+
+    const data = await response.json();
+
+    if (data.success) {
+      let msg = 'Banco de dados resetado com sucesso!';
+      if (data.archived) {
+        msg += `\n\nDados arquivados em: ${data.archived.name}`;
+      }
+      alert(msg);
+
+      // Recarrega dados
+      await Promise.all([
+        fetchRounds(),
+        fetchStats(),
+        fetchAdvancedStats(),
+        fetchHourlyAnalysis(),
+        fetchHouseProfit()
+      ]);
+
+      loadArchives();
+    } else {
+      alert(`Erro ao resetar: ${data.error}`);
+    }
+  } catch (err) {
+    console.error('[Data] Erro ao resetar:', err);
+    alert('Erro ao resetar banco de dados');
+  }
+}
+
+/**
+ * Mescla dados de um arquivo com os dados atuais (sem duplicar)
+ */
+async function mergeArchive(name) {
+  const confirmMerge = confirm(`Isso vai ADICIONAR os dados do arquivo "${name}" aos dados atuais.\n\nRodadas duplicadas serão ignoradas automaticamente.\n\nDeseja continuar?`);
+  if (!confirmMerge) return;
+
+  try {
+    const response = await fetch(`${observerApiUrl}/api/database/merge`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name })
+    });
+
+    const data = await response.json();
+
+    if (data.success) {
+      alert(`Dados mesclados com sucesso!\n\n• Importadas: ${data.imported} rodadas\n• Ignoradas (duplicadas): ${data.skipped} rodadas\n• Total no arquivo: ${data.total} rodadas`);
+
+      // Recarrega dados
+      await Promise.all([
+        fetchRounds(),
+        fetchStats(),
+        fetchAdvancedStats(),
+        fetchHourlyAnalysis(),
+        fetchHouseProfit()
+      ]);
+
+      // Não fecha o modal para permitir mais operações
+    } else {
+      alert(`Erro ao mesclar: ${data.error}`);
+    }
+  } catch (err) {
+    console.error('[Data] Erro ao mesclar:', err);
+    alert('Erro ao mesclar dados');
+  }
+}
+
+/**
+ * Restaura um arquivo (substitui dados atuais)
+ */
+async function restoreArchive(name) {
+  const confirmRestore = confirm(`Isso vai SUBSTITUIR todos os dados atuais pelos dados do arquivo "${name}".\n\nDeseja arquivar os dados atuais antes?`);
+  if (confirmRestore === null) return;
+
+  // Se o usuário quer arquivar antes
+  if (confirmRestore) {
+    await archiveDatabaseSilent();
+  }
+
+  try {
+    const response = await fetch(`${observerApiUrl}/api/database/restore`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name })
+    });
+
+    const data = await response.json();
+
+    if (data.success) {
+      alert(`Arquivo restaurado com sucesso!\nRodadas: ${data.roundsCount}`);
+
+      // Recarrega dados
+      await Promise.all([
+        fetchRounds(),
+        fetchStats(),
+        fetchAdvancedStats(),
+        fetchHourlyAnalysis(),
+        fetchHouseProfit()
+      ]);
+
+      closeDataModal();
+    } else {
+      alert(`Erro ao restaurar: ${data.error}`);
+    }
+  } catch (err) {
+    console.error('[Data] Erro ao restaurar:', err);
+    alert('Erro ao restaurar arquivo');
+  }
+}
+
+/**
+ * Arquiva silenciosamente (sem prompts)
+ */
+async function archiveDatabaseSilent() {
+  try {
+    const response = await fetch(`${observerApiUrl}/api/database/archive`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: null })
+    });
+    return await response.json();
+  } catch (err) {
+    console.error('[Data] Erro ao arquivar silenciosamente:', err);
+    return { success: false };
+  }
+}
+
+/**
+ * Deleta um arquivo
+ */
+async function deleteArchive(name) {
+  const confirmDelete = confirm(`Tem certeza que deseja DELETAR o arquivo "${name}"?\n\nEssa ação não pode ser desfeita.`);
+  if (!confirmDelete) return;
+
+  try {
+    const response = await fetch(`${observerApiUrl}/api/database/archives/${encodeURIComponent(name)}`, {
+      method: 'DELETE'
+    });
+
+    const data = await response.json();
+
+    if (data.success) {
+      loadArchives();
+    } else {
+      alert(`Erro ao deletar: ${data.error}`);
+    }
+  } catch (err) {
+    console.error('[Data] Erro ao deletar arquivo:', err);
+    alert('Erro ao deletar arquivo');
+  }
+}
+
 // Inicia quando o DOM estiver pronto
-document.addEventListener('DOMContentLoaded', init);
+document.addEventListener('DOMContentLoaded', () => {
+  init();
+  initDataManagement();
+});

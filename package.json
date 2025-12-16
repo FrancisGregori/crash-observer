@@ -1,18 +1,24 @@
 {
   "name": "crash-game-observer",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Observador em tempo real do jogo Crash da SpinBetter com dashboard de estatísticas",
-  "main": "src/index.js",
+  "main": "src/observer/index.js",
   "type": "module",
   "scripts": {
-    "start": "node src/index.js",
-    "observer": "node src/index.js --observer-only",
-    "dashboard": "node src/index.js --dashboard-only"
+    "observer": "node src/observer/index.js",
+    "dashboard": "node src/dashboard/index.js",
+    "start": "node src/observer/index.js",
+    "dev": "concurrently \"npm run observer\" \"npm run dashboard\""
   },
   "dependencies": {
     "better-sqlite3": "^11.6.0",
+    "cors": "^2.8.5",
     "express": "^4.21.1",
-    "playwright": "^1.49.1"
+    "playwright": "^1.49.1",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
   },
   "engines": {
     "node": ">=18.0.0"

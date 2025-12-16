@@ -57,7 +57,12 @@
 
         <!-- Estatísticas -->
         <section class="stats">
-          <h2>Estatísticas Gerais</h2>
+          <div class="stats-header">
+            <h2>Estatísticas Gerais</h2>
+            <button class="btn-data-manage" id="btnManageData" title="Gerenciar dados">
+              <span>⚙️</span> Gerenciar
+            </button>
+          </div>
           <div class="stats-grid">
             <div class="stat-card">
               <span class="stat-label">Total de Rodadas</span>
@@ -441,166 +446,512 @@
 
           <!-- Tab Bot Automático -->
           <div class="sim-tab-content" id="tabBot">
-            <!-- Status do Bot -->
-            <div class="bot-status-bar">
-              <div class="bot-status-indicator" id="botStatusIndicator">
-                <span class="bot-status-dot"></span>
-                <span class="bot-status-text" id="botStatusText">Desativado</span>
+            <!-- Estatísticas Combinadas -->
+            <div class="combined-stats">
+              <div class="combined-stats-row">
+                <span>Saldo Total:</span>
+                <strong id="combinedBalance">R$ 200,00</strong>
               </div>
-              <div class="bot-account-type" id="botAccountType">
-                <span class="account-icon">🎮</span>
-                <span class="account-label" id="botAccountLabel">Conta Fictícia</span>
+              <div class="combined-stats-row">
+                <span>Lucro Total:</span>
+                <strong id="combinedProfit">R$ 0,00</strong>
               </div>
-              <button class="btn-bot-toggle" id="botToggle">Ativar Bot</button>
             </div>
 
-            <!-- Banca do Bot -->
-            <div class="simulator-balance bot-balance">
-              <div class="balance-info">
-                <span class="balance-label">Banca do Bot</span>
-                <div class="balance-editable">
-                  <span class="balance-value" id="botBalance">R$ 100,00</span>
-                  <div class="balance-edit-group hidden" id="balanceEditGroup">
-                    <span class="balance-prefix">R$</span>
-                    <input type="number" id="botBalanceInput" value="100" min="0" step="0.01">
-                    <button class="btn-balance-save" id="botBalanceSave">OK</button>
-                  </div>
-                  <button class="btn-balance-edit" id="botBalanceEdit" title="Editar banca">✏️</button>
+            <!-- Seletor de Bot (Abas) -->
+            <div class="bot-selector-tabs">
+              <button class="bot-tab active" data-bot="bot1">
+                <span class="bot-tab-name">Bot 1</span>
+                <span class="bot-tab-balance" id="bot1TabBalance">R$ 100,00</span>
+                <span class="bot-tab-status" id="bot1TabStatus"></span>
+              </button>
+              <button class="bot-tab" data-bot="bot2">
+                <span class="bot-tab-name">Bot 2</span>
+                <span class="bot-tab-balance" id="bot2TabBalance">R$ 100,00</span>
+                <span class="bot-tab-status" id="bot2TabStatus"></span>
+              </button>
+            </div>
+
+            <!-- ========== Painel Bot 1 ========== -->
+            <div class="bot-panel active" id="bot1Panel">
+              <!-- Status do Bot -->
+              <div class="bot-status-bar">
+                <div class="bot-status-indicator" id="bot1StatusIndicator">
+                  <span class="bot-status-dot"></span>
+                  <span class="bot-status-text" id="bot1StatusText">Desativado</span>
                 </div>
-              </div>
-              <div class="balance-actions">
-                <button class="btn-sim btn-sessions" id="botSessionsBtn" title="Ver sessões anteriores">Histórico</button>
-                <button class="btn-sim btn-reset" id="botReset" title="Arquivar e resetar">Resetar</button>
-              </div>
-            </div>
-
-            <!-- Decisão Atual do Bot -->
-            <div class="bot-decision" id="botDecision">
-              <h3>Análise Atual</h3>
-              <div class="bot-decision-content" id="botDecisionContent">
-                <p class="bot-waiting">Aguardando ativação...</p>
-              </div>
-            </div>
-
-            <!-- Aposta Ativa do Bot -->
-            <div class="bot-active-bet hidden" id="botActiveBet">
-              <div class="active-bet-header">
-                <span class="active-bet-label">Aposta do Bot</span>
-                <span class="active-bet-status" id="botBetStatus">Aguardando...</span>
-              </div>
-              <div class="bot-bet-details" id="botBetDetails">
-                <!-- Preenchido via JS -->
-              </div>
-            </div>
-
-            <!-- Estatísticas do Bot -->
-            <div class="sim-stats bot-stats">
-              <h3>Estatísticas do Bot</h3>
-              <div class="sim-stats-grid">
-                <div class="sim-stat">
-                  <span class="sim-stat-label">Apostas</span>
-                  <span class="sim-stat-value" id="botTotalBets">0</span>
+                <div class="bot-account-type" id="bot1AccountType">
+                  <span class="account-icon">T</span>
+                  <span class="account-label" id="bot1AccountLabel">Simulacao</span>
                 </div>
-                <div class="sim-stat">
-                  <span class="sim-stat-label">Vitórias</span>
-                  <span class="sim-stat-value" id="botWins">0 (0%)</span>
-                </div>
-                <div class="sim-stat">
-                  <span class="sim-stat-label">Lucro</span>
-                  <span class="sim-stat-value" id="botProfit">R$ 0,00</span>
-                </div>
-                <div class="sim-stat">
-                  <span class="sim-stat-label">ROI</span>
-                  <span class="sim-stat-value" id="botROI">0%</span>
-                </div>
+                <button class="btn-bot-toggle" id="bot1Toggle">Ativar Bot</button>
               </div>
-            </div>
 
-            <!-- Histórico do Bot -->
-            <div class="sim-history bot-history">
-              <h3>Histórico do Bot</h3>
-              <div class="sim-history-list" id="botHistoryList">
-                <p class="no-history">Nenhuma aposta ainda</p>
-              </div>
-            </div>
-
-            <!-- Configuração do Bot (Collapsível) -->
-            <div class="bot-config-section collapsible" id="botConfigSection">
-              <div class="config-header" id="configToggle">
-                <h3>Configurações</h3>
-                <span class="config-toggle-icon">▼</span>
-              </div>
-              <div class="config-body" id="configBody">
-                <!-- Modo de Conta -->
-                <div class="live-mode-section" id="liveModeSection">
-                  <div class="live-mode-toggle">
-                    <label class="toggle-switch">
-                      <input type="checkbox" id="liveModeToggle">
-                      <span class="toggle-slider"></span>
-                    </label>
-                    <span class="live-mode-label" id="liveModeLabel">Usar Conta Real</span>
-                  </div>
-                  <div class="live-mode-warning hidden" id="liveModeWarning">
-                    <span class="warning-icon">⚠️</span>
-                    <span class="warning-text">Apostas com dinheiro real!</span>
+              <!-- Banca do Bot -->
+              <div class="simulator-balance bot-balance">
+                <div class="balance-info">
+                  <span class="balance-label">Banca Bot 1</span>
+                  <div class="balance-editable">
+                    <span class="balance-value" id="bot1Balance">R$ 100,00</span>
+                    <div class="balance-edit-group hidden" id="bot1BalanceEditGroup">
+                      <span class="balance-prefix">R$</span>
+                      <input type="number" id="bot1BalanceInput" value="100" min="0" step="0.01">
+                      <button class="btn-balance-save" id="bot1BalanceSave">OK</button>
+                    </div>
+                    <button class="btn-balance-edit" id="bot1BalanceEdit" title="Editar banca">✏️</button>
                   </div>
                 </div>
+                <div class="balance-actions">
+                  <button class="btn-sim btn-sessions" id="bot1SessionsBtn" title="Ver sessoes anteriores">Historico</button>
+                  <button class="btn-sim btn-reset" id="bot1Reset" title="Arquivar e resetar">Resetar</button>
+                </div>
+              </div>
 
-                <!-- Valor de Aposta -->
-                <div class="bot-config-single">
-                  <div class="bot-config-item">
-                    <label for="botBetAmount">Valor por Aposta (R$)</label>
-                    <div class="config-input-group">
-                      <input type="number" id="botBetAmount" value="10" min="1" max="1000" step="1">
-                      <div class="config-quick-btns">
-                        <button class="config-quick-btn" data-amount="1">1</button>
-                        <button class="config-quick-btn" data-amount="2">2</button>
-                        <button class="config-quick-btn" data-amount="5">5</button>
-                        <button class="config-quick-btn" data-amount="10">10</button>
-                        <button class="config-quick-btn" data-amount="20">20</button>
+              <!-- Decisão Atual do Bot -->
+              <div class="bot-decision" id="bot1Decision">
+                <h3>Analise Atual</h3>
+                <div class="bot-decision-content" id="bot1DecisionContent">
+                  <p class="bot-waiting">Aguardando ativacao...</p>
+                </div>
+              </div>
+
+              <!-- Aposta Ativa do Bot -->
+              <div class="bot-active-bet hidden" id="bot1ActiveBet">
+                <div class="active-bet-header">
+                  <span class="active-bet-label">Aposta Bot 1</span>
+                  <span class="active-bet-status" id="bot1BetStatus">Aguardando...</span>
+                </div>
+                <div class="bot-bet-details" id="bot1BetDetails"></div>
+              </div>
+
+              <!-- Estatísticas do Bot -->
+              <div class="sim-stats bot-stats">
+                <h3>Estatisticas Bot 1</h3>
+                <div class="sim-stats-grid">
+                  <div class="sim-stat">
+                    <span class="sim-stat-label">Apostas</span>
+                    <span class="sim-stat-value" id="bot1TotalBets">0</span>
+                  </div>
+                  <div class="sim-stat">
+                    <span class="sim-stat-label">Vitorias</span>
+                    <span class="sim-stat-value" id="bot1Wins">0 (0%)</span>
+                  </div>
+                  <div class="sim-stat">
+                    <span class="sim-stat-label">Lucro</span>
+                    <span class="sim-stat-value" id="bot1Profit">R$ 0,00</span>
+                  </div>
+                  <div class="sim-stat">
+                    <span class="sim-stat-label">ROI</span>
+                    <span class="sim-stat-value" id="bot1ROI">0%</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Histórico do Bot -->
+              <div class="sim-history bot-history">
+                <h3>Historico Bot 1</h3>
+                <div class="sim-history-list" id="bot1HistoryList">
+                  <p class="no-history">Nenhuma aposta ainda</p>
+                </div>
+              </div>
+
+              <!-- Configuração do Bot (Collapsível) -->
+              <div class="bot-config-section collapsible" id="bot1ConfigSection">
+                <div class="config-header" id="bot1ConfigToggle">
+                  <h3>Configuracoes</h3>
+                  <span class="config-toggle-icon">▼</span>
+                </div>
+                <div class="config-body" id="bot1ConfigBody">
+                  <!-- Modo de Conta -->
+                  <div class="live-mode-section" id="bot1LiveModeSection">
+                    <div class="live-mode-toggle">
+                      <label class="toggle-switch">
+                        <input type="checkbox" id="bot1LiveModeToggle">
+                        <span class="toggle-slider"></span>
+                      </label>
+                      <span class="live-mode-label" id="bot1LiveModeLabel">Usar Conta Real</span>
+                    </div>
+                    <div class="live-mode-warning hidden" id="bot1LiveModeWarning">
+                      <span class="warning-icon">⚠️</span>
+                      <span class="warning-text">Apostas com dinheiro real!</span>
+                    </div>
+                  </div>
+
+                  <!-- Valor de Aposta -->
+                  <div class="bot-config-single">
+                    <div class="bot-config-item">
+                      <label for="bot1BetAmount">Valor por Aposta (R$)</label>
+                      <div class="config-input-group">
+                        <input type="number" id="bot1BetAmount" value="10" min="1" max="1000" step="1">
+                        <div class="config-quick-btns">
+                          <button class="config-quick-btn" data-bot="bot1" data-amount="1">1</button>
+                          <button class="config-quick-btn" data-bot="bot1" data-amount="2">2</button>
+                          <button class="config-quick-btn" data-bot="bot1" data-amount="5">5</button>
+                          <button class="config-quick-btn" data-bot="bot1" data-amount="10">10</button>
+                          <button class="config-quick-btn" data-bot="bot1" data-amount="20">20</button>
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
-                <div class="bot-config-summary">
-                  <div class="config-summary-row">
-                    <span>Total por rodada:</span>
-                    <strong id="botTotalPerRound">R$ 20,00</strong>
+
+                  <!-- Gestao de Banca -->
+                  <div class="config-group">
+                    <div class="config-group-header">
+                      <label class="toggle-switch small">
+                        <input type="checkbox" id="bot1BankrollEnabled" checked>
+                        <span class="toggle-slider"></span>
+                      </label>
+                      <span class="config-group-title">Gestao de Banca</span>
+                    </div>
+                    <div class="config-group-body" id="bot1BankrollBody">
+                      <div class="config-row">
+                        <label>Max % por rodada</label>
+                        <input type="number" id="bot1MaxBetPercent" value="5" min="1" max="100" step="1">
+                      </div>
+                    </div>
                   </div>
-                  <div class="config-summary-row muted">
-                    <span>Cashouts:</span>
-                    <span>Automático (~2.10x + 5.10x~15x)</span>
+
+                  <!-- Stop-Loss -->
+                  <div class="config-group">
+                    <div class="config-group-header">
+                      <label class="toggle-switch small">
+                        <input type="checkbox" id="bot1StopLossEnabled" checked>
+                        <span class="toggle-slider"></span>
+                      </label>
+                      <span class="config-group-title">Stop-Loss</span>
+                    </div>
+                    <div class="config-group-body" id="bot1StopLossBody">
+                      <div class="config-row">
+                        <label>Perda max %</label>
+                        <input type="number" id="bot1StopLossPercent" value="30" min="1" max="100" step="1">
+                        <div class="config-quick-btns small">
+                          <button class="config-quick-btn" data-bot="bot1" data-field="stopLoss" data-value="20">20%</button>
+                          <button class="config-quick-btn" data-bot="bot1" data-field="stopLoss" data-value="30">30%</button>
+                          <button class="config-quick-btn" data-bot="bot1" data-field="stopLoss" data-value="50">50%</button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Take-Profit -->
+                  <div class="config-group">
+                    <div class="config-group-header">
+                      <label class="toggle-switch small">
+                        <input type="checkbox" id="bot1TakeProfitEnabled" checked>
+                        <span class="toggle-slider"></span>
+                      </label>
+                      <span class="config-group-title">Take-Profit</span>
+                    </div>
+                    <div class="config-group-body" id="bot1TakeProfitBody">
+                      <div class="config-row">
+                        <label>Lucro meta %</label>
+                        <input type="number" id="bot1TakeProfitPercent" value="50" min="1" max="500" step="1">
+                        <div class="config-quick-btns small">
+                          <button class="config-quick-btn" data-bot="bot1" data-field="takeProfit" data-value="30">30%</button>
+                          <button class="config-quick-btn" data-bot="bot1" data-field="takeProfit" data-value="50">50%</button>
+                          <button class="config-quick-btn" data-bot="bot1" data-field="takeProfit" data-value="100">100%</button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Cashout Dinamico -->
+                  <div class="config-group">
+                    <div class="config-group-header">
+                      <label class="toggle-switch small">
+                        <input type="checkbox" id="bot1DynamicCashoutEnabled" checked>
+                        <span class="toggle-slider"></span>
+                      </label>
+                      <span class="config-group-title">Cashout Dinamico</span>
+                    </div>
+                    <div class="config-group-body" id="bot1DynamicCashoutBody">
+                      <div class="config-row triple">
+                        <div class="config-col">
+                          <label>Conservador</label>
+                          <input type="number" id="bot1CashoutConservative" value="1.50" min="1.01" max="10" step="0.01">
+                        </div>
+                        <div class="config-col">
+                          <label>Normal</label>
+                          <input type="number" id="bot1CashoutNormal" value="2.00" min="1.01" max="10" step="0.01">
+                        </div>
+                        <div class="config-col">
+                          <label>Agressivo</label>
+                          <input type="number" id="bot1CashoutAggressive" value="2.20" min="1.01" max="10" step="0.01">
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="bot-config-summary">
+                    <div class="config-summary-row">
+                      <span>Total por rodada:</span>
+                      <strong id="bot1TotalPerRound">R$ 20,00</strong>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Regras do Bot -->
+              <div class="bot-rules collapsible">
+                <div class="rules-header" id="bot1RulesToggle">
+                  <h3>Regras da Estrategia</h3>
+                  <span class="rules-toggle-icon">▼</span>
+                </div>
+                <div class="bot-rules-list" id="bot1RulesBody">
+                  <div class="bot-rule">
+                    <span class="rule-icon">💰</span>
+                    <span class="rule-text">2 apostas por rodada</span>
+                  </div>
+                  <div class="bot-rule">
+                    <span class="rule-icon">🎯</span>
+                    <span class="rule-text">Aposta 1: Saida rapida (~2.10x)</span>
+                  </div>
+                  <div class="bot-rule">
+                    <span class="rule-icon">🚀</span>
+                    <span class="rule-text">Aposta 2: Alvo de lucro automatico</span>
                   </div>
                 </div>
               </div>
             </div>
 
-            <!-- Regras do Bot -->
-            <div class="bot-rules collapsible">
-              <div class="rules-header" id="rulesToggle">
-                <h3>Regras da Estratégia</h3>
-                <span class="rules-toggle-icon">▼</span>
+            <!-- ========== Painel Bot 2 ========== -->
+            <div class="bot-panel" id="bot2Panel">
+              <!-- Status do Bot -->
+              <div class="bot-status-bar">
+                <div class="bot-status-indicator" id="bot2StatusIndicator">
+                  <span class="bot-status-dot"></span>
+                  <span class="bot-status-text" id="bot2StatusText">Desativado</span>
+                </div>
+                <div class="bot-account-type" id="bot2AccountType">
+                  <span class="account-icon">T</span>
+                  <span class="account-label" id="bot2AccountLabel">Simulacao</span>
+                </div>
+                <button class="btn-bot-toggle" id="bot2Toggle">Ativar Bot</button>
               </div>
-              <div class="bot-rules-list" id="rulesBody">
-                <div class="bot-rule">
-                  <span class="rule-icon">💰</span>
-                  <span class="rule-text">2 apostas por rodada (valores acima)</span>
+
+              <!-- Banca do Bot -->
+              <div class="simulator-balance bot-balance">
+                <div class="balance-info">
+                  <span class="balance-label">Banca Bot 2</span>
+                  <div class="balance-editable">
+                    <span class="balance-value" id="bot2Balance">R$ 100,00</span>
+                    <div class="balance-edit-group hidden" id="bot2BalanceEditGroup">
+                      <span class="balance-prefix">R$</span>
+                      <input type="number" id="bot2BalanceInput" value="100" min="0" step="0.01">
+                      <button class="btn-balance-save" id="bot2BalanceSave">OK</button>
+                    </div>
+                    <button class="btn-balance-edit" id="bot2BalanceEdit" title="Editar banca">✏️</button>
+                  </div>
                 </div>
-                <div class="bot-rule">
-                  <span class="rule-icon">🎯</span>
-                  <span class="rule-text">Aposta 1: Saída rápida (~2.10x)</span>
+                <div class="balance-actions">
+                  <button class="btn-sim btn-sessions" id="bot2SessionsBtn" title="Ver sessoes anteriores">Historico</button>
+                  <button class="btn-sim btn-reset" id="bot2Reset" title="Arquivar e resetar">Resetar</button>
                 </div>
-                <div class="bot-rule">
-                  <span class="rule-icon">🚀</span>
-                  <span class="rule-text">Aposta 2: Alvo de lucro automático</span>
+              </div>
+
+              <!-- Decisão Atual do Bot -->
+              <div class="bot-decision" id="bot2Decision">
+                <h3>Analise Atual</h3>
+                <div class="bot-decision-content" id="bot2DecisionContent">
+                  <p class="bot-waiting">Aguardando ativacao...</p>
                 </div>
-                <div class="bot-rule">
-                  <span class="rule-icon">📊</span>
-                  <span class="rule-text">Só entra se 2x ou 5x estiver próximo/atrasado</span>
+              </div>
+
+              <!-- Aposta Ativa do Bot -->
+              <div class="bot-active-bet hidden" id="bot2ActiveBet">
+                <div class="active-bet-header">
+                  <span class="active-bet-label">Aposta Bot 2</span>
+                  <span class="active-bet-status" id="bot2BetStatus">Aguardando...</span>
                 </div>
-                <div class="bot-rule">
-                  <span class="rule-icon">⚡</span>
-                  <span class="rule-text">Se 10x/15x/20x muito atrasados: busca 10x+</span>
+                <div class="bot-bet-details" id="bot2BetDetails"></div>
+              </div>
+
+              <!-- Estatísticas do Bot -->
+              <div class="sim-stats bot-stats">
+                <h3>Estatisticas Bot 2</h3>
+                <div class="sim-stats-grid">
+                  <div class="sim-stat">
+                    <span class="sim-stat-label">Apostas</span>
+                    <span class="sim-stat-value" id="bot2TotalBets">0</span>
+                  </div>
+                  <div class="sim-stat">
+                    <span class="sim-stat-label">Vitorias</span>
+                    <span class="sim-stat-value" id="bot2Wins">0 (0%)</span>
+                  </div>
+                  <div class="sim-stat">
+                    <span class="sim-stat-label">Lucro</span>
+                    <span class="sim-stat-value" id="bot2Profit">R$ 0,00</span>
+                  </div>
+                  <div class="sim-stat">
+                    <span class="sim-stat-label">ROI</span>
+                    <span class="sim-stat-value" id="bot2ROI">0%</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Histórico do Bot -->
+              <div class="sim-history bot-history">
+                <h3>Historico Bot 2</h3>
+                <div class="sim-history-list" id="bot2HistoryList">
+                  <p class="no-history">Nenhuma aposta ainda</p>
+                </div>
+              </div>
+
+              <!-- Configuração do Bot (Collapsível) -->
+              <div class="bot-config-section collapsible" id="bot2ConfigSection">
+                <div class="config-header" id="bot2ConfigToggle">
+                  <h3>Configuracoes</h3>
+                  <span class="config-toggle-icon">▼</span>
+                </div>
+                <div class="config-body" id="bot2ConfigBody">
+                  <!-- Modo de Conta -->
+                  <div class="live-mode-section" id="bot2LiveModeSection">
+                    <div class="live-mode-toggle">
+                      <label class="toggle-switch">
+                        <input type="checkbox" id="bot2LiveModeToggle">
+                        <span class="toggle-slider"></span>
+                      </label>
+                      <span class="live-mode-label" id="bot2LiveModeLabel">Usar Conta Real</span>
+                    </div>
+                    <div class="live-mode-warning hidden" id="bot2LiveModeWarning">
+                      <span class="warning-icon">⚠️</span>
+                      <span class="warning-text">Apostas com dinheiro real!</span>
+                    </div>
+                  </div>
+
+                  <!-- Valor de Aposta -->
+                  <div class="bot-config-single">
+                    <div class="bot-config-item">
+                      <label for="bot2BetAmount">Valor por Aposta (R$)</label>
+                      <div class="config-input-group">
+                        <input type="number" id="bot2BetAmount" value="10" min="1" max="1000" step="1">
+                        <div class="config-quick-btns">
+                          <button class="config-quick-btn" data-bot="bot2" data-amount="1">1</button>
+                          <button class="config-quick-btn" data-bot="bot2" data-amount="2">2</button>
+                          <button class="config-quick-btn" data-bot="bot2" data-amount="5">5</button>
+                          <button class="config-quick-btn" data-bot="bot2" data-amount="10">10</button>
+                          <button class="config-quick-btn" data-bot="bot2" data-amount="20">20</button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Gestao de Banca -->
+                  <div class="config-group">
+                    <div class="config-group-header">
+                      <label class="toggle-switch small">
+                        <input type="checkbox" id="bot2BankrollEnabled" checked>
+                        <span class="toggle-slider"></span>
+                      </label>
+                      <span class="config-group-title">Gestao de Banca</span>
+                    </div>
+                    <div class="config-group-body" id="bot2BankrollBody">
+                      <div class="config-row">
+                        <label>Max % por rodada</label>
+                        <input type="number" id="bot2MaxBetPercent" value="5" min="1" max="100" step="1">
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Stop-Loss -->
+                  <div class="config-group">
+                    <div class="config-group-header">
+                      <label class="toggle-switch small">
+                        <input type="checkbox" id="bot2StopLossEnabled" checked>
+                        <span class="toggle-slider"></span>
+                      </label>
+                      <span class="config-group-title">Stop-Loss</span>
+                    </div>
+                    <div class="config-group-body" id="bot2StopLossBody">
+                      <div class="config-row">
+                        <label>Perda max %</label>
+                        <input type="number" id="bot2StopLossPercent" value="30" min="1" max="100" step="1">
+                        <div class="config-quick-btns small">
+                          <button class="config-quick-btn" data-bot="bot2" data-field="stopLoss" data-value="20">20%</button>
+                          <button class="config-quick-btn" data-bot="bot2" data-field="stopLoss" data-value="30">30%</button>
+                          <button class="config-quick-btn" data-bot="bot2" data-field="stopLoss" data-value="50">50%</button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Take-Profit -->
+                  <div class="config-group">
+                    <div class="config-group-header">
+                      <label class="toggle-switch small">
+                        <input type="checkbox" id="bot2TakeProfitEnabled" checked>
+                        <span class="toggle-slider"></span>
+                      </label>
+                      <span class="config-group-title">Take-Profit</span>
+                    </div>
+                    <div class="config-group-body" id="bot2TakeProfitBody">
+                      <div class="config-row">
+                        <label>Lucro meta %</label>
+                        <input type="number" id="bot2TakeProfitPercent" value="50" min="1" max="500" step="1">
+                        <div class="config-quick-btns small">
+                          <button class="config-quick-btn" data-bot="bot2" data-field="takeProfit" data-value="30">30%</button>
+                          <button class="config-quick-btn" data-bot="bot2" data-field="takeProfit" data-value="50">50%</button>
+                          <button class="config-quick-btn" data-bot="bot2" data-field="takeProfit" data-value="100">100%</button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Cashout Dinamico -->
+                  <div class="config-group">
+                    <div class="config-group-header">
+                      <label class="toggle-switch small">
+                        <input type="checkbox" id="bot2DynamicCashoutEnabled" checked>
+                        <span class="toggle-slider"></span>
+                      </label>
+                      <span class="config-group-title">Cashout Dinamico</span>
+                    </div>
+                    <div class="config-group-body" id="bot2DynamicCashoutBody">
+                      <div class="config-row triple">
+                        <div class="config-col">
+                          <label>Conservador</label>
+                          <input type="number" id="bot2CashoutConservative" value="1.50" min="1.01" max="10" step="0.01">
+                        </div>
+                        <div class="config-col">
+                          <label>Normal</label>
+                          <input type="number" id="bot2CashoutNormal" value="2.00" min="1.01" max="10" step="0.01">
+                        </div>
+                        <div class="config-col">
+                          <label>Agressivo</label>
+                          <input type="number" id="bot2CashoutAggressive" value="2.20" min="1.01" max="10" step="0.01">
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="bot-config-summary">
+                    <div class="config-summary-row">
+                      <span>Total por rodada:</span>
+                      <strong id="bot2TotalPerRound">R$ 20,00</strong>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Regras do Bot -->
+              <div class="bot-rules collapsible">
+                <div class="rules-header" id="bot2RulesToggle">
+                  <h3>Regras da Estrategia</h3>
+                  <span class="rules-toggle-icon">▼</span>
+                </div>
+                <div class="bot-rules-list" id="bot2RulesBody">
+                  <div class="bot-rule">
+                    <span class="rule-icon">💰</span>
+                    <span class="rule-text">2 apostas por rodada</span>
+                  </div>
+                  <div class="bot-rule">
+                    <span class="rule-icon">🎯</span>
+                    <span class="rule-text">Aposta 1: Saida rapida (~2.10x)</span>
+                  </div>
+                  <div class="bot-rule">
+                    <span class="rule-icon">🚀</span>
+                    <span class="rule-text">Aposta 2: Alvo de lucro automatico</span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -620,6 +971,32 @@
       <div class="sessions-modal-body">
         <div class="sessions-list" id="sessionsList">
           <!-- Preenchido via JS -->
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal de Gerenciamento de Dados -->
+  <div class="sessions-modal" id="dataModal">
+    <div class="sessions-modal-content">
+      <div class="sessions-modal-header">
+        <h2>Gerenciar Dados</h2>
+        <button class="sessions-close-btn" id="dataModalClose">&times;</button>
+      </div>
+      <div class="sessions-modal-body">
+        <div class="data-actions">
+          <button class="btn btn-archive" id="btnArchiveDb">
+            <span class="btn-icon">📦</span>
+            Arquivar Dados Atuais
+          </button>
+          <button class="btn btn-reset-db" id="btnResetDb">
+            <span class="btn-icon">🔄</span>
+            Resetar (Começar Limpo)
+          </button>
+        </div>
+        <h3>Arquivos Salvos</h3>
+        <div class="archives-list" id="archivesList">
+          <p class="loading-text">Carregando...</p>
         </div>
       </div>
     </div>

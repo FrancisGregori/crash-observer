@@ -1,9 +1,12 @@
 import Database from 'better-sqlite3';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DB_PATH = path.join(__dirname, '..', 'data', 'crash_stats.db');
+const DATA_DIR = path.join(__dirname, '..', 'data');
+const DB_PATH = path.join(DATA_DIR, 'crash_stats.db');
+const ARCHIVE_DIR = path.join(DATA_DIR, 'archives');
 
 let db = null;
 
@@ -57,22 +60,22 @@ export function insertRound(round) {
 }
 
 /**
- * Retorna as últimas N rodadas
+ * Retorna as últimas N rodadas (ordenadas por data/hora)
  */
 export function getLastRounds(limit = 100) {
   const stmt = db.prepare(`
     SELECT * FROM rounds
-    ORDER BY id DESC
+    ORDER BY createdAt DESC
     LIMIT ?
   `);
   return stmt.all(limit);
 }
 
 /**
- * Retorna todas as rodadas (para análise)
+ * Retorna todas as rodadas (para análise, ordenadas por data/hora)
  */
 export function getAllRounds() {
-  const stmt = db.prepare(`SELECT * FROM rounds ORDER BY id DESC`);
+  const stmt = db.prepare(`SELECT * FROM rounds ORDER BY createdAt DESC`);
   return stmt.all();
 }
 
@@ -131,7 +134,7 @@ export function getStats() {
     const result = db.prepare(`
       WITH ranked AS (
         SELECT multiplier,
-               ROW_NUMBER() OVER (ORDER BY id DESC) as rn
+               ROW_NUMBER() OVER (ORDER BY createdAt DESC) as rn
         FROM rounds
       )
       SELECT COUNT(*) as streak
@@ -178,7 +181,7 @@ export function getStats() {
  * Retorna a última rodada inserida
  */
 export function getLastRound() {
-  const stmt = db.prepare(`SELECT * FROM rounds ORDER BY id DESC LIMIT 1`);
+  const stmt = db.prepare(`SELECT * FROM rounds ORDER BY createdAt DESC LIMIT 1`);
   return stmt.get();
 }
 
@@ -418,7 +421,7 @@ export function getAdvancedStats() {
   function getCurrentStreak(threshold) {
     const result = db.prepare(`
       WITH ranked AS (
-        SELECT multiplier, ROW_NUMBER() OVER (ORDER BY id DESC) as rn
+        SELECT multiplier, ROW_NUMBER() OVER (ORDER BY createdAt DESC) as rn
         FROM rounds
       )
       SELECT COUNT(*) as streak
@@ -471,13 +474,13 @@ export function getAdvancedStats() {
   const patternAnalysis = db.prepare(`
     WITH sequences AS (
       SELECT
-        id,
+        createdAt,
         multiplier,
-        LAG(multiplier, 1) OVER (ORDER BY id) as prev1,
-        LAG(multiplier, 2) OVER (ORDER BY id) as prev2,
-        LAG(multiplier, 3) OVER (ORDER BY id) as prev3,
-        LAG(multiplier, 4) OVER (ORDER BY id) as prev4,
-        LAG(multiplier, 5) OVER (ORDER BY id) as prev5
+        LAG(multiplier, 1) OVER (ORDER BY createdAt) as prev1,
+        LAG(multiplier, 2) OVER (ORDER BY createdAt) as prev2,
+        LAG(multiplier, 3) OVER (ORDER BY createdAt) as prev3,
+        LAG(multiplier, 4) OVER (ORDER BY createdAt) as prev4,
+        LAG(multiplier, 5) OVER (ORDER BY createdAt) as prev5
       FROM rounds
     )
     SELECT
@@ -533,22 +536,22 @@ export function getAdvancedStats() {
   const avgMultiplier = db.prepare(`SELECT AVG(multiplier) as avg FROM rounds`).get().avg;
 
   const last10Avg = db.prepare(`
-    SELECT AVG(multiplier) as avg FROM (SELECT multiplier FROM rounds ORDER BY id DESC LIMIT 10)
+    SELECT AVG(multiplier) as avg FROM (SELECT multiplier FROM rounds ORDER BY createdAt DESC LIMIT 10)
   `).get().avg;
 
   const last20Avg = db.prepare(`
-    SELECT AVG(multiplier) as avg FROM (SELECT multiplier FROM rounds ORDER BY id DESC LIMIT 20)
+    SELECT AVG(multiplier) as avg FROM (SELECT multiplier FROM rounds ORDER BY createdAt DESC LIMIT 20)
   `).get().avg;
 
   const last50Avg = db.prepare(`
-    SELECT AVG(multiplier) as avg FROM (SELECT multiplier FROM rounds ORDER BY id DESC LIMIT 50)
+    SELECT AVG(multiplier) as avg FROM (SELECT multiplier FROM rounds ORDER BY createdAt DESC LIMIT 50)
   `).get().avg;
 
   // Volatilidade (desvio padrão)
   const volatilityData = db.prepare(`
     SELECT
       (SELECT AVG((multiplier - avg) * (multiplier - avg)) FROM rounds, (SELECT AVG(multiplier) as avg FROM rounds)) as variance_all,
-      (SELECT AVG((multiplier - avg) * (multiplier - avg)) FROM (SELECT multiplier FROM rounds ORDER BY id DESC LIMIT 20), (SELECT AVG(multiplier) as avg FROM (SELECT multiplier FROM rounds ORDER BY id DESC LIMIT 20))) as variance_20
+      (SELECT AVG((multiplier - avg) * (multiplier - avg)) FROM (SELECT multiplier FROM rounds ORDER BY createdAt DESC LIMIT 20), (SELECT AVG(multiplier) as avg FROM (SELECT multiplier FROM rounds ORDER BY createdAt DESC LIMIT 20))) as variance_20
   `).get();
 
   const momentum = {
@@ -771,7 +774,302 @@ export function getAdvancedStats() {
 export function closeDatabase() {
   if (db) {
     db.close();
+    db = null;
     console.log('[DB] Conexão fechada');
+  }
+}
+
+/**
+ * Arquiva o banco de dados atual
+ * @param {string} name - Nome do arquivo (opcional, usa timestamp se não fornecido)
+ */
+export function archiveDatabase(name = null) {
+  // Garante que o diretório de arquivos existe
+  if (!fs.existsSync(ARCHIVE_DIR)) {
+    fs.mkdirSync(ARCHIVE_DIR, { recursive: true });
+  }
+
+  // Fecha a conexão atual
+  closeDatabase();
+
+  // Verifica se o banco existe
+  if (!fs.existsSync(DB_PATH)) {
+    initDatabase();
+    return { success: false, error: 'Banco de dados não existe' };
+  }
+
+  // Gera nome do arquivo
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const archiveName = name || `archive_${timestamp}`;
+  const archivePath = path.join(ARCHIVE_DIR, `${archiveName}.db`);
+
+  // Copia o banco para o arquivo
+  fs.copyFileSync(DB_PATH, archivePath);
+
+  // Também copia os arquivos WAL e SHM se existirem
+  const walPath = `${DB_PATH}-wal`;
+  const shmPath = `${DB_PATH}-shm`;
+  if (fs.existsSync(walPath)) {
+    fs.copyFileSync(walPath, `${archivePath}-wal`);
+  }
+  if (fs.existsSync(shmPath)) {
+    fs.copyFileSync(shmPath, `${archivePath}-shm`);
+  }
+
+  // Conta rodadas do arquivo
+  const archiveDb = new Database(archivePath);
+  const count = archiveDb.prepare('SELECT COUNT(*) as count FROM rounds').get().count;
+  archiveDb.close();
+
+  // Reinicializa o banco
+  initDatabase();
+
+  console.log(`[DB] Banco arquivado: ${archiveName} (${count} rodadas)`);
+
+  return {
+    success: true,
+    name: archiveName,
+    path: archivePath,
+    roundsCount: count
+  };
+}
+
+/**
+ * Lista arquivos disponíveis
+ */
+export function listArchives() {
+  if (!fs.existsSync(ARCHIVE_DIR)) {
+    return [];
+  }
+
+  const files = fs.readdirSync(ARCHIVE_DIR)
+    .filter(f => f.endsWith('.db'))
+    .map(f => {
+      const filePath = path.join(ARCHIVE_DIR, f);
+      const stats = fs.statSync(filePath);
+
+      // Abre o arquivo para contar rodadas
+      let roundsCount = 0;
+      try {
+        const archiveDb = new Database(filePath);
+        roundsCount = archiveDb.prepare('SELECT COUNT(*) as count FROM rounds').get().count;
+        archiveDb.close();
+      } catch (err) {
+        console.error(`[DB] Erro ao ler arquivo ${f}:`, err.message);
+      }
+
+      return {
+        name: f.replace('.db', ''),
+        filename: f,
+        path: filePath,
+        size: stats.size,
+        createdAt: stats.birthtime.toISOString(),
+        roundsCount
+      };
+    })
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+  return files;
+}
+
+/**
+ * Restaura um arquivo
+ * @param {string} name - Nome do arquivo a restaurar
+ */
+export function restoreArchive(name) {
+  const archivePath = path.join(ARCHIVE_DIR, `${name}.db`);
+
+  if (!fs.existsSync(archivePath)) {
+    return { success: false, error: 'Arquivo não encontrado' };
+  }
+
+  // Fecha a conexão atual
+  closeDatabase();
+
+  // Remove o banco atual
+  if (fs.existsSync(DB_PATH)) {
+    fs.unlinkSync(DB_PATH);
+  }
+  const walPath = `${DB_PATH}-wal`;
+  const shmPath = `${DB_PATH}-shm`;
+  if (fs.existsSync(walPath)) fs.unlinkSync(walPath);
+  if (fs.existsSync(shmPath)) fs.unlinkSync(shmPath);
+
+  // Copia o arquivo para o banco
+  fs.copyFileSync(archivePath, DB_PATH);
+
+  // Também copia os arquivos WAL e SHM se existirem
+  const archiveWalPath = `${archivePath}-wal`;
+  const archiveShmPath = `${archivePath}-shm`;
+  if (fs.existsSync(archiveWalPath)) {
+    fs.copyFileSync(archiveWalPath, walPath);
+  }
+  if (fs.existsSync(archiveShmPath)) {
+    fs.copyFileSync(archiveShmPath, shmPath);
+  }
+
+  // Reinicializa o banco
+  initDatabase();
+
+  // Conta rodadas
+  const count = db.prepare('SELECT COUNT(*) as count FROM rounds').get().count;
+
+  console.log(`[DB] Arquivo restaurado: ${name} (${count} rodadas)`);
+
+  return {
+    success: true,
+    name,
+    roundsCount: count
+  };
+}
+
+/**
+ * Reseta o banco de dados (cria um novo vazio)
+ * @param {boolean} archive - Se deve arquivar antes de resetar
+ */
+export function resetDatabase(archive = true) {
+  // Arquiva primeiro se solicitado
+  let archiveResult = null;
+  if (archive) {
+    archiveResult = archiveDatabase();
+  }
+
+  // Fecha a conexão atual
+  closeDatabase();
+
+  // Remove o banco atual
+  if (fs.existsSync(DB_PATH)) {
+    fs.unlinkSync(DB_PATH);
+  }
+  const walPath = `${DB_PATH}-wal`;
+  const shmPath = `${DB_PATH}-shm`;
+  if (fs.existsSync(walPath)) fs.unlinkSync(walPath);
+  if (fs.existsSync(shmPath)) fs.unlinkSync(shmPath);
+
+  // Reinicializa o banco
+  initDatabase();
+
+  console.log('[DB] Banco de dados resetado');
+
+  return {
+    success: true,
+    archived: archiveResult
+  };
+}
+
+/**
+ * Deleta um arquivo
+ * @param {string} name - Nome do arquivo a deletar
+ */
+export function deleteArchive(name) {
+  const archivePath = path.join(ARCHIVE_DIR, `${name}.db`);
+
+  if (!fs.existsSync(archivePath)) {
+    return { success: false, error: 'Arquivo não encontrado' };
+  }
+
+  // Remove o arquivo
+  fs.unlinkSync(archivePath);
+
+  // Remove arquivos WAL e SHM se existirem
+  const walPath = `${archivePath}-wal`;
+  const shmPath = `${archivePath}-shm`;
+  if (fs.existsSync(walPath)) fs.unlinkSync(walPath);
+  if (fs.existsSync(shmPath)) fs.unlinkSync(shmPath);
+
+  console.log(`[DB] Arquivo deletado: ${name}`);
+
+  return { success: true, name };
+}
+
+/**
+ * Mescla dados de um arquivo com o banco atual
+ * Não duplica rodadas que já existem (baseado no timestamp)
+ * @param {string} name - Nome do arquivo a mesclar
+ */
+export function mergeArchive(name) {
+  const archivePath = path.join(ARCHIVE_DIR, `${name}.db`);
+
+  if (!fs.existsSync(archivePath)) {
+    return { success: false, error: 'Arquivo não encontrado' };
+  }
+
+  // Verifica se o banco está inicializado
+  if (!db) {
+    console.error('[DB] Banco de dados não inicializado');
+    return { success: false, error: 'Banco de dados não inicializado' };
+  }
+
+  let archiveDb = null;
+
+  try {
+    // Abre o arquivo para leitura
+    archiveDb = new Database(archivePath, { readonly: true });
+
+    // Busca todas as rodadas do arquivo
+    const archiveRounds = archiveDb.prepare('SELECT * FROM rounds ORDER BY createdAt ASC').all();
+
+    if (archiveRounds.length === 0) {
+      archiveDb.close();
+      return { success: true, imported: 0, skipped: 0, message: 'Arquivo vazio' };
+    }
+
+    // Prepara statement para verificar se rodada já existe
+    const checkStmt = db.prepare('SELECT id FROM rounds WHERE createdAt = ?');
+
+    // Prepara statement para inserir
+    const insertStmt = db.prepare(`
+      INSERT INTO rounds (createdAt, betCount, totalBet, totalWin, multiplier)
+      VALUES (?, ?, ?, ?, ?)
+    `);
+
+    let imported = 0;
+    let skipped = 0;
+
+    // Usa transação para performance
+    const importRounds = db.transaction(() => {
+      for (const round of archiveRounds) {
+        // Verifica se já existe pelo timestamp
+        const existing = checkStmt.get(round.createdAt);
+
+        if (existing) {
+          skipped++;
+        } else {
+          insertStmt.run(
+            round.createdAt,
+            round.betCount,
+            round.totalBet,
+            round.totalWin,
+            round.multiplier
+          );
+          imported++;
+        }
+      }
+    });
+
+    importRounds();
+
+    console.log(`[DB] Arquivo mesclado: ${name} (${imported} importadas, ${skipped} duplicadas ignoradas)`);
+
+    return {
+      success: true,
+      name,
+      imported,
+      skipped,
+      total: archiveRounds.length
+    };
+  } catch (err) {
+    console.error('[DB] Erro ao mesclar arquivo:', err);
+    return { success: false, error: err.message };
+  } finally {
+    // Garante que o arquivo seja fechado
+    if (archiveDb) {
+      try {
+        archiveDb.close();
+      } catch (e) {
+        // Ignora erro ao fechar
+      }
+    }
   }
 }
 
@@ -785,5 +1083,11 @@ export default {
   getHourlyAnalysis,
   getHouseProfitByPeriod,
   getAdvancedStats,
-  closeDatabase
+  closeDatabase,
+  archiveDatabase,
+  listArchives,
+  restoreArchive,
+  resetDatabase,
+  deleteArchive,
+  mergeArchive
 };

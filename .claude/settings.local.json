@@ -10,7 +10,8 @@
       "Bash(curl:*)",
       "Bash(python3:*)",
       "Bash(lsof:*)",
-      "Bash(xargs kill:*)"
+      "Bash(xargs kill:*)",
+      "Bash(node --check:*)"
     ]
   }
 }

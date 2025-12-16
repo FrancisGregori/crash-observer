@@ -1,32 +1,23 @@
 import express from 'express';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import { getLastRounds, getStats, getAllRounds, getLastRound, getHourlyAnalysis, getHouseProfitByPeriod, getAdvancedStats } from './database.js';
-import * as liveBetting from './liveBetting.js';
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+import cors from 'cors';
+import { getLastRounds, getStats, getAllRounds, getLastRound, getHourlyAnalysis, getHouseProfitByPeriod, getAdvancedStats, archiveDatabase, listArchives, restoreArchive, resetDatabase, deleteArchive, mergeArchive } from '../database.js';
+import * as liveBetting from '../liveBetting.js';
+import { broadcastLiveBetEvent } from './websocket.js';
 
 const app = express();
-const PORT = process.env.PORT || 3000;
 
-// Clientes SSE conectados
-const sseClients = new Set();
-
-// Log de eventos de live betting para SSE
+// Log de eventos de live betting
 const liveBettingLogs = [];
 
-// Middleware para JSON
+// Middleware
+app.use(cors());
 app.use(express.json());
-
-// Servir arquivos estáticos do dashboard
-app.use(express.static(path.join(__dirname, 'public')));
 
 // ========== API REST ==========
 
 /**
  * GET /api/rounds
  * Retorna as últimas rodadas
- * Query params: limit (default: 100)
  */
 app.get('/api/rounds', (req, res) => {
   try {
@@ -290,67 +281,116 @@ app.get('/api/live-betting/balance', async (req, res) => {
   }
 });
 
-/**
- * Broadcast evento de live betting para clientes SSE
- */
-function broadcastLiveBetEvent(eventType, data) {
-  const event = { type: eventType, data, timestamp: new Date().toISOString() };
-  sseClients.forEach(client => {
-    client.write(`event: liveBet\ndata: ${JSON.stringify(event)}\n\n`);
-  });
-}
-
-// ========== Server-Sent Events (SSE) ==========
+// ========== Database Management API ==========
 
 /**
- * GET /api/events
- * Endpoint SSE para atualizações em tempo real
+ * POST /api/database/archive
+ * Arquiva o banco de dados atual
  */
-app.get('/api/events', (req, res) => {
-  // Configura headers para SSE
-  res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
-  res.setHeader('Connection', 'keep-alive');
-  res.setHeader('Access-Control-Allow-Origin', '*');
-
-  // Envia evento inicial de conexão
-  res.write(`event: connected\ndata: ${JSON.stringify({ message: 'Conectado ao stream de eventos' })}\n\n`);
-
-  // Adiciona cliente à lista
-  sseClients.add(res);
-  console.log(`[SSE] Cliente conectado. Total: ${sseClients.size}`);
-
-  // Remove cliente quando desconectar
-  req.on('close', () => {
-    sseClients.delete(res);
-    console.log(`[SSE] Cliente desconectado. Total: ${sseClients.size}`);
-  });
+app.post('/api/database/archive', (req, res) => {
+  try {
+    const { name } = req.body;
+    const result = archiveDatabase(name || null);
+    res.json(result);
+  } catch (err) {
+    console.error('[API] Erro ao arquivar banco:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 /**
- * Envia nova rodada para todos os clientes SSE
+ * GET /api/database/archives
+ * Lista todos os arquivos disponíveis
  */
-export function broadcastRound(round) {
-  const data = JSON.stringify(round);
-  sseClients.forEach(client => {
-    client.write(`event: round\ndata: ${data}\n\n`);
-  });
-  console.log(`[SSE] Rodada enviada para ${sseClients.size} clientes`);
-}
+app.get('/api/database/archives', (req, res) => {
+  try {
+    const archives = listArchives();
+    res.json({ success: true, archives });
+  } catch (err) {
+    console.error('[API] Erro ao listar arquivos:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
 
 /**
- * Inicia o servidor Express
+ * POST /api/database/restore
+ * Restaura um arquivo
  */
-export function startServer() {
+app.post('/api/database/restore', (req, res) => {
+  try {
+    const { name } = req.body;
+    if (!name) {
+      return res.status(400).json({ success: false, error: 'Nome do arquivo é obrigatório' });
+    }
+    const result = restoreArchive(name);
+    res.json(result);
+  } catch (err) {
+    console.error('[API] Erro ao restaurar arquivo:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/database/reset
+ * Reseta o banco de dados (opcionalmente arquiva antes)
+ */
+app.post('/api/database/reset', (req, res) => {
+  try {
+    const { archive = true } = req.body;
+    const result = resetDatabase(archive);
+    res.json(result);
+  } catch (err) {
+    console.error('[API] Erro ao resetar banco:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * DELETE /api/database/archives/:name
+ * Deleta um arquivo
+ */
+app.delete('/api/database/archives/:name', (req, res) => {
+  try {
+    const { name } = req.params;
+    const result = deleteArchive(name);
+    res.json(result);
+  } catch (err) {
+    console.error('[API] Erro ao deletar arquivo:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/database/merge
+ * Mescla dados de um arquivo com o banco atual (sem duplicar)
+ */
+app.post('/api/database/merge', (req, res) => {
+  try {
+    const { name } = req.body;
+    if (!name) {
+      return res.status(400).json({ success: false, error: 'Nome do arquivo é obrigatório' });
+    }
+    const result = mergeArchive(name);
+    res.json(result);
+  } catch (err) {
+    console.error('[API] Erro ao mesclar arquivo:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * Inicia o servidor da API
+ */
+export function startApiServer(port) {
   return new Promise((resolve) => {
-    const server = app.listen(PORT, () => {
-      console.log(`[Server] Dashboard disponível em: http://localhost:${PORT}`);
+    const server = app.listen(port, () => {
+      console.log(`[API] Servidor REST iniciado na porta ${port}`);
       resolve(server);
     });
   });
 }
 
 export default {
-  startServer,
-  broadcastRound
+  startApiServer,
+  app
 };
