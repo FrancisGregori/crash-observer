@@ -1695,10 +1695,13 @@ function saveBotState() {
 /**
  * Sincroniza o saldo do bot com o saldo real da plataforma (modo live)
  */
-async function syncPlatformBalance() {
-  if (!bot.liveMode) {
-    return;
+async function syncPlatformBalance(forceSync = false) {
+  // Só sincroniza em modo live (ou se forçado)
+  if (!bot.liveMode && !forceSync) {
+    return false;
   }
+
+  console.log('[Bot] 💰 Buscando saldo da plataforma...');
 
   try {
     const response = await fetch('/api/live-betting/balance');
@@ -1709,15 +1712,18 @@ async function syncPlatformBalance() {
       bot.balance = result.balance;
       bot.initialBalance = result.balance; // Atualiza também o saldo inicial para cálculos corretos
 
-      console.log(`[Bot] 💰 Saldo sincronizado com plataforma: ${formatCurrency(oldBalance)} → ${formatCurrency(result.balance)}`);
+      console.log(`[Bot] 💰 Saldo sincronizado: ${formatCurrency(oldBalance)} → ${formatCurrency(result.balance)}`);
 
       saveBotState();
       renderBot();
+      return true;
     } else {
-      console.warn('[Bot] Não foi possível sincronizar saldo:', result.error || 'Erro desconhecido');
+      console.warn('[Bot] ⚠️ Não foi possível sincronizar saldo:', result.error || 'Erro desconhecido');
+      return false;
     }
   } catch (err) {
-    console.error('[Bot] Erro ao sincronizar saldo:', err);
+    console.error('[Bot] ❌ Erro ao sincronizar saldo:', err);
+    return false;
   }
 }
 
@@ -2131,8 +2137,11 @@ async function toggleBot() {
 
         console.log('[Bot] Live betting ativado no backend com sucesso!');
 
-        // Sincroniza o saldo da plataforma
-        await syncPlatformBalance();
+        // Sincroniza o saldo da plataforma (obrigatório antes de iniciar)
+        const synced = await syncPlatformBalance();
+        if (!synced) {
+          console.warn('[Bot] Não foi possível sincronizar saldo, usando valor atual');
+        }
       } catch (err) {
         console.error('[Bot] Erro ao ativar live betting:', err);
         bot.active = false;

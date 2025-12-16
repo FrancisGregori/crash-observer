@@ -13,6 +13,7 @@
 
 // Estado do módulo
 let gameFrame = null;
+let mainPage = null; // Página principal (para ler saldo, etc)
 let isEnabled = false;
 let lastBetTime = 0;
 const BET_COOLDOWN = 3000; // 3 segundos entre apostas
@@ -70,6 +71,13 @@ function log(message, type = 'info') {
  */
 export function setGameFrame(frame) {
   gameFrame = frame;
+}
+
+/**
+ * Configura a página principal (para ler saldo, etc)
+ */
+export function setMainPage(page) {
+  mainPage = page;
 }
 
 /**
@@ -767,16 +775,17 @@ export async function getBettingSummary(limit = 30) {
 
 /**
  * Lê o saldo atual da plataforma
+ * O saldo está na página principal, não no iframe do jogo
  * @returns {Promise<{success: boolean, balance?: number, currency?: string, error?: string}>}
  */
 export async function getPlatformBalance() {
-  if (!gameFrame) {
-    return { success: false, error: 'Frame não disponível' };
+  if (!mainPage) {
+    return { success: false, error: 'Página principal não disponível' };
   }
 
   try {
-    const result = await gameFrame.evaluate(() => {
-      // Seletor para o container de saldo
+    const result = await mainPage.evaluate(() => {
+      // Seletor para o container de saldo (está na página principal, não no iframe)
       const balanceContainer = document.querySelector('.double-row-header-balance-info__currency');
 
       if (!balanceContainer) {
@@ -813,6 +822,7 @@ export async function getPlatformBalance() {
 
 export default {
   setGameFrame,
+  setMainPage,
   setEnabled,
   isLiveBettingEnabled,
   setCallbacks,

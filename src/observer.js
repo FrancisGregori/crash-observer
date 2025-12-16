@@ -258,8 +258,9 @@ export async function startObserver() {
     throw new Error('Iframe do jogo não encontrado');
   }
 
-  // Configura o módulo de apostas reais com o frame do jogo
+  // Configura o módulo de apostas reais com o frame do jogo e a página principal
   liveBetting.setGameFrame(gameFrame);
+  liveBetting.setMainPage(page);
   console.log('[Observer] Módulo de apostas reais configurado');
 
   // Aguarda o elemento mountains no iframe (não precisa estar visível)
