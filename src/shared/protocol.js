@@ -5,6 +5,7 @@ export const WS_MESSAGE_TYPES = {
   GAME_STATE: 'game_state',
   BETTING_PHASE: 'betting_phase',
   LIVE_BET: 'liveBet',
+  ML_PREDICTION: 'ml_prediction',
   ERROR: 'error'
 };
 

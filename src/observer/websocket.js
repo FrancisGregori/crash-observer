@@ -98,6 +98,14 @@ export function broadcastBettingPhase(data) {
 }
 
 /**
+ * Broadcast de previsão ML
+ */
+export function broadcastMLPrediction(prediction) {
+  broadcast(WS_MESSAGE_TYPES.ML_PREDICTION, prediction);
+  console.log(`[WS] ML prediction broadcast to ${clients.size} clients`);
+}
+
+/**
  * Retorna o número de clientes conectados
  */
 export function getClientCount() {
@@ -110,5 +118,6 @@ export default {
   broadcastRound,
   broadcastLiveBetEvent,
   broadcastBettingPhase,
+  broadcastMLPrediction,
   getClientCount
 };

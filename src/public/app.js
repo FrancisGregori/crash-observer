@@ -4,6 +4,7 @@ let stats = {};
 let hourlyData = {};
 let houseProfitData = {};
 let advancedStats = {};
+let mlPrediction = null; // ML prediction state
 let currentLimit = 50;
 
 // ========== Conexão com Observer ==========
@@ -24,6 +25,14 @@ let simulator = {
     losses: 0,
     totalWagered: 0,
     totalProfit: 0
+  },
+  // Configurações de aposta (persistidas)
+  config: {
+    betMode: 'single', // 'single' ou 'double'
+    betAmount: 10,
+    betCashout: 2.00,
+    betAmountDouble: 5,
+    betCashout2: 5.00
   }
 };
 
@@ -48,6 +57,36 @@ function saveSimulatorState() {
   } catch (e) {
     console.error('[Simulator] Erro ao salvar estado:', e);
   }
+}
+
+// Atualiza UI do simulador com configurações salvas
+function updateSimulatorConfigUI() {
+  const config = simulator.config;
+  if (!config) return;
+
+  // Atualiza valores dos inputs
+  if (elements.betAmount) elements.betAmount.value = config.betAmount;
+  if (elements.betCashout) elements.betCashout.value = config.betCashout;
+  if (elements.betAmountDouble) elements.betAmountDouble.value = config.betAmountDouble;
+  if (elements.betCashout2) elements.betCashout2.value = config.betCashout2;
+
+  // Atualiza modo de aposta (single/double)
+  if (config.betMode === 'double') {
+    const doubleBtn = document.querySelector('[data-mode="double"]');
+    if (doubleBtn) doubleBtn.click();
+  }
+}
+
+// Salva configuração do simulador quando valores mudam
+function saveSimulatorConfig() {
+  simulator.config = {
+    betMode: currentBetMode || 'single',
+    betAmount: parseFloat(elements.betAmount?.value) || 10,
+    betCashout: parseFloat(elements.betCashout?.value) || 2.00,
+    betAmountDouble: parseFloat(elements.betAmountDouble?.value) || 5,
+    betCashout2: parseFloat(elements.betCashout2?.value) || 5.00
+  };
+  saveSimulatorState();
 }
 
 // ========== Elementos DOM ==========
@@ -506,6 +545,10 @@ async function fetchAdvancedStats() {
     advancedStats = await response.json();
     console.log('[DEBUG] advancedStats:', advancedStats);
     renderAdvancedStats();
+
+    // Atualiza análise dos bots quando novos dados chegam
+    updateBotDecision('bot1');
+    updateBotDecision('bot2');
   } catch (err) {
     console.error('Erro ao buscar análise avançada:', err);
   }
@@ -1090,6 +1133,9 @@ function setBetMode(mode) {
     elements.singleBetInputs.classList.add('hidden');
     elements.doubleBetInputs.classList.remove('hidden');
   }
+
+  // Salva configuração
+  saveSimulatorConfig();
 }
 
 /**
@@ -1116,12 +1162,14 @@ function setupSimulatorEvents() {
       const mult = parseFloat(btn.dataset.mult);
       const current = parseFloat(elements.betAmount.value) || 10;
       elements.betAmount.value = Math.max(1, Math.floor(current * mult));
+      saveSimulatorConfig();
     });
   });
 
   elements.singleBetInputs.querySelectorAll('.quick-btn[data-set="max"]').forEach(btn => {
     btn.addEventListener('click', () => {
       elements.betAmount.value = Math.floor(simulator.balance);
+      saveSimulatorConfig();
     });
   });
 
@@ -1129,6 +1177,7 @@ function setupSimulatorEvents() {
   elements.singleBetInputs.querySelectorAll('.quick-btn[data-cashout]').forEach(btn => {
     btn.addEventListener('click', () => {
       elements.betCashout.value = btn.dataset.cashout;
+      saveSimulatorConfig();
     });
   });
 
@@ -1140,6 +1189,7 @@ function setupSimulatorEvents() {
       const newValue = Math.max(1, Math.floor(current * mult));
       elements.betAmountDouble.value = newValue;
       updateDoubleBetTotal();
+      saveSimulatorConfig();
     });
   });
 
@@ -1147,11 +1197,18 @@ function setupSimulatorEvents() {
   elements.doubleBetInputs.querySelectorAll('.quick-btn[data-cashout2]').forEach(btn => {
     btn.addEventListener('click', () => {
       elements.betCashout2.value = btn.dataset.cashout2;
+      saveSimulatorConfig();
     });
   });
 
   // Atualiza total quando muda o valor
   elements.betAmountDouble.addEventListener('input', updateDoubleBetTotal);
+
+  // Salva configurações quando valores mudam
+  elements.betAmount.addEventListener('change', saveSimulatorConfig);
+  elements.betCashout.addEventListener('change', saveSimulatorConfig);
+  elements.betAmountDouble.addEventListener('change', saveSimulatorConfig);
+  elements.betCashout2.addEventListener('change', saveSimulatorConfig);
 }
 
 // ========== WebSocket Connection ==========
@@ -1208,6 +1265,12 @@ function connectWebSocket(url) {
       case 'betting_phase':
         console.log('[WS] Fase de apostas:', data);
         break;
+
+      case 'ml_prediction':
+        console.log('[WS] ML Prediction recebida:', data);
+        mlPrediction = data;
+        renderMLPrediction(data);
+        break;
     }
   };
 
@@ -1262,6 +1325,95 @@ function handleLiveBetEvent(event) {
   }
 }
 
+// ========== ML Predictions ==========
+
+/**
+ * Renderiza as previsões de ML na UI
+ */
+function renderMLPrediction(prediction) {
+  if (!prediction) return;
+
+  // Update status
+  const statusEl = document.getElementById('mlStatus');
+  if (statusEl) {
+    statusEl.textContent = 'Ativo';
+    statusEl.classList.add('active');
+  }
+
+  // Helper function to get probability class
+  const getProbClass = (prob) => {
+    if (prob >= 0.6) return 'high';
+    if (prob >= 0.4) return 'medium';
+    return 'low';
+  };
+
+  // Helper function to get warning class
+  const getWarningClass = (prob) => {
+    if (prob >= 0.5) return 'danger';
+    if (prob >= 0.3) return 'warning';
+    return 'safe';
+  };
+
+  // Update probability bars and values
+  const probabilities = [
+    { key: '2x', value: prediction.prob_gt_2x },
+    { key: '3x', value: prediction.prob_gt_3x },
+    { key: '4x', value: prediction.prob_gt_4x },
+    { key: '5x', value: prediction.prob_gt_5x },
+    { key: '7x', value: prediction.prob_gt_7x },
+    { key: '10x', value: prediction.prob_gt_10x },
+  ];
+
+  probabilities.forEach(({ key, value }) => {
+    const bar = document.getElementById(`mlBar${key}`);
+    const valueEl = document.getElementById(`mlProb${key}`);
+
+    if (bar && value !== undefined) {
+      const percent = Math.round(value * 100);
+      bar.style.width = `${percent}%`;
+      bar.className = `ml-bar ${getProbClass(value)}`;
+    }
+
+    if (valueEl && value !== undefined) {
+      const percent = Math.round(value * 100);
+      valueEl.textContent = `${percent}%`;
+      valueEl.className = `ml-value ${getProbClass(value)}`;
+    }
+  });
+
+  // Update warnings
+  const earlyCrashEl = document.getElementById('mlEarlyCrash');
+  const earlyCrashValue = document.getElementById('mlEarlyCrashValue');
+  if (earlyCrashEl && prediction.prob_early_crash !== undefined) {
+    const prob = prediction.prob_early_crash;
+    const percent = Math.round(prob * 100);
+    earlyCrashEl.className = `ml-warning-item ${getWarningClass(prob)}`;
+    if (earlyCrashValue) earlyCrashValue.textContent = `${percent}%`;
+  }
+
+  const lossStreakEl = document.getElementById('mlLossStreak');
+  const lossStreakValue = document.getElementById('mlLossStreakValue');
+  if (lossStreakEl && prediction.prob_high_loss_streak !== undefined) {
+    const prob = prediction.prob_high_loss_streak;
+    const percent = Math.round(prob * 100);
+    lossStreakEl.className = `ml-warning-item ${getWarningClass(prob)}`;
+    if (lossStreakValue) lossStreakValue.textContent = `${percent}%`;
+  }
+
+  // Update meta info
+  const roundIdEl = document.getElementById('mlRoundId');
+  if (roundIdEl && prediction.round_id) {
+    roundIdEl.textContent = prediction.round_id;
+  }
+
+  const versionEl = document.getElementById('mlModelVersion');
+  if (versionEl && prediction.model_version) {
+    versionEl.textContent = prediction.model_version.replace('v', '');
+  }
+
+  console.log('[ML] Prediction rendered:', prediction);
+}
+
 /**
  * Atualiza status de conexão
  */
@@ -1294,6 +1446,11 @@ async function init() {
 
   // Carrega estado do simulador
   loadSimulatorState();
+
+  // Atualiza UI com configurações salvas (após pequeno delay para garantir que DOM está pronto)
+  setTimeout(() => {
+    updateSimulatorConfigUI();
+  }, 100);
 
   // Busca configuração do Observer
   try {
@@ -1380,6 +1537,8 @@ function createBotState(botId) {
     active: false,
     balance: 100,
     initialBalance: 100,
+    minBalance: 100,  // Menor saldo atingido na sessão
+    maxBalance: 100,  // Maior saldo atingido na sessão
     activeBet: null,
     history: [],
     stats: {
@@ -1435,6 +1594,89 @@ function createBotConfig(botId) {
       conservative: 1.50,
       normal: 2.0,
       aggressive: 2.20
+    },
+    // ========== CONFIGURACAO ML ==========
+    mlConfig: {
+      // Habilita uso de ML nas decisoes
+      enabled: false,
+      // Se true, nao aposta sem ML disponivel
+      requireML: false,
+      // Modo de integracao: 'override' (ML substitui logica), 'enhance' (ML complementa)
+      mode: 'enhance',
+
+      // === REGRAS DE BLOQUEIO (impedem aposta) ===
+      blockRules: {
+        // Bloqueia se probabilidade de crash precoce for alta
+        earlyCrash: {
+          enabled: true,
+          threshold: 0.35,  // Bloqueia se prob_early_crash > 35%
+          priority: 1       // Prioridade (1 = mais alta)
+        },
+        // Bloqueia se estiver em sequencia ruim
+        highLossStreak: {
+          enabled: true,
+          threshold: 0.50,  // Bloqueia se prob_high_loss_streak > 50%
+          priority: 1
+        },
+        // Bloqueia se prob de 2x for muito baixa
+        lowProb2x: {
+          enabled: true,
+          threshold: 0.40,  // Bloqueia se prob_gt_2x < 40%
+          priority: 2
+        }
+      },
+
+      // === REGRAS DE REQUISITO (precisam ser atendidas) ===
+      requireRules: {
+        // Requer minimo de prob para 2x
+        minProb2x: {
+          enabled: false,
+          threshold: 0.45   // Requer prob_gt_2x >= 45%
+        },
+        // Requer que ML esteja confiante
+        minConfidence: {
+          enabled: false,
+          threshold: 0.50   // Pelo menos uma prob > 50%
+        }
+      },
+
+      // === REGRAS DE AJUSTE (modificam parametros) ===
+      adjustRules: {
+        // Ajusta valor da aposta baseado em confianca
+        betSizeByConfidence: {
+          enabled: true,
+          // Multiplica aposta quando prob_gt_2x esta em faixa
+          highConfidence: { minProb: 0.60, multiplier: 1.2 },
+          mediumConfidence: { minProb: 0.50, multiplier: 1.0 },
+          lowConfidence: { minProb: 0.40, multiplier: 0.7 },
+          veryLowConfidence: { minProb: 0.0, multiplier: 0.5 }
+        },
+        // Ajusta cashout baseado em probabilidades
+        cashoutByProb: {
+          enabled: true,
+          // Se prob_gt_5x > threshold, usa cashout mais agressivo
+          aggressive: { probField: 'prob_gt_5x', threshold: 0.35, cashout: 5.0 },
+          // Se prob_gt_3x > threshold, usa cashout medio
+          medium: { probField: 'prob_gt_3x', threshold: 0.45, cashout: 3.0 },
+          // Padrao conservador
+          conservative: { cashout: 2.0 }
+        },
+        // Reduz aposta em momento de risco
+        reduceOnRisk: {
+          enabled: true,
+          // Se early_crash > threshold, reduz aposta
+          earlyCrashThreshold: 0.25,
+          reductionFactor: 0.7
+        }
+      },
+
+      // === OVERRIDE DE SEQUENCIAS ===
+      // Se ML confianca alta, ignora analise de sequencias
+      overrideSequences: {
+        enabled: false,
+        // Prob minima para ignorar sequencias desfavoraveis
+        minProbToOverride: 0.65
+      }
     }
   };
 }
@@ -1642,6 +1884,366 @@ function calculateOptimalCashout1(botId = 'bot1') {
     reason
   };
 }
+
+// ============================================================
+// ========== MOTOR DE REGRAS ML ==========
+// ============================================================
+
+/**
+ * Verifica se ML esta disponivel e valido
+ */
+function isMLAvailable() {
+  return mlPrediction !== null &&
+         mlPrediction.prob_gt_2x !== undefined &&
+         mlPrediction.generated_at !== undefined;
+}
+
+/**
+ * Obtem a idade da previsao ML em segundos
+ */
+function getMLPredictionAge() {
+  if (!mlPrediction || !mlPrediction.generated_at) return Infinity;
+  const generatedAt = new Date(mlPrediction.generated_at);
+  const now = new Date();
+  return (now - generatedAt) / 1000;
+}
+
+/**
+ * Avalia regras de BLOQUEIO do ML
+ * Retorna: { blocked: boolean, reasons: string[] }
+ */
+function evaluateMLBlockRules(botId = 'bot1') {
+  const botConfig = bots[botId].config;
+  const mlConfig = botConfig.mlConfig;
+  const result = { blocked: false, reasons: [], triggeredRules: [] };
+
+  if (!mlConfig.enabled || !isMLAvailable()) {
+    return result;
+  }
+
+  const blockRules = mlConfig.blockRules;
+
+  // Regra: Bloqueia em probabilidade alta de crash precoce
+  if (blockRules.earlyCrash.enabled) {
+    const prob = mlPrediction.prob_early_crash || 0;
+    if (prob > blockRules.earlyCrash.threshold) {
+      result.blocked = true;
+      result.reasons.push(`ML: Crash precoce alto (${(prob * 100).toFixed(0)}% > ${(blockRules.earlyCrash.threshold * 100).toFixed(0)}%)`);
+      result.triggeredRules.push('earlyCrash');
+    }
+  }
+
+  // Regra: Bloqueia em sequencia de perdas alta
+  if (blockRules.highLossStreak.enabled) {
+    const prob = mlPrediction.prob_high_loss_streak || 0;
+    if (prob > blockRules.highLossStreak.threshold) {
+      result.blocked = true;
+      result.reasons.push(`ML: Sequencia ruim (${(prob * 100).toFixed(0)}% > ${(blockRules.highLossStreak.threshold * 100).toFixed(0)}%)`);
+      result.triggeredRules.push('highLossStreak');
+    }
+  }
+
+  // Regra: Bloqueia se prob de 2x muito baixa
+  if (blockRules.lowProb2x.enabled) {
+    const prob = mlPrediction.prob_gt_2x || 0;
+    if (prob < blockRules.lowProb2x.threshold) {
+      result.blocked = true;
+      result.reasons.push(`ML: Prob 2x baixa (${(prob * 100).toFixed(0)}% < ${(blockRules.lowProb2x.threshold * 100).toFixed(0)}%)`);
+      result.triggeredRules.push('lowProb2x');
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Avalia regras de REQUISITO do ML
+ * Retorna: { passed: boolean, reasons: string[] }
+ */
+function evaluateMLRequireRules(botId = 'bot1') {
+  const botConfig = bots[botId].config;
+  const mlConfig = botConfig.mlConfig;
+  const result = { passed: true, reasons: [], failedRules: [] };
+
+  if (!mlConfig.enabled || !isMLAvailable()) {
+    return result;
+  }
+
+  const requireRules = mlConfig.requireRules;
+
+  // Regra: Requer minimo de prob para 2x
+  if (requireRules.minProb2x.enabled) {
+    const prob = mlPrediction.prob_gt_2x || 0;
+    if (prob < requireRules.minProb2x.threshold) {
+      result.passed = false;
+      result.reasons.push(`ML: Prob 2x insuficiente (${(prob * 100).toFixed(0)}% < ${(requireRules.minProb2x.threshold * 100).toFixed(0)}%)`);
+      result.failedRules.push('minProb2x');
+    }
+  }
+
+  // Regra: Requer confianca minima
+  if (requireRules.minConfidence.enabled) {
+    const maxProb = Math.max(
+      mlPrediction.prob_gt_2x || 0,
+      mlPrediction.prob_gt_3x || 0,
+      mlPrediction.prob_gt_5x || 0
+    );
+    if (maxProb < requireRules.minConfidence.threshold) {
+      result.passed = false;
+      result.reasons.push(`ML: Confianca baixa (max ${(maxProb * 100).toFixed(0)}% < ${(requireRules.minConfidence.threshold * 100).toFixed(0)}%)`);
+      result.failedRules.push('minConfidence');
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Calcula ajustes de ML para o valor da aposta
+ * Retorna: { multiplier: number, reasons: string[] }
+ */
+function calculateMLBetAdjustments(botId = 'bot1') {
+  const botConfig = bots[botId].config;
+  const mlConfig = botConfig.mlConfig;
+  const result = { multiplier: 1.0, reasons: [] };
+
+  if (!mlConfig.enabled || !isMLAvailable()) {
+    return result;
+  }
+
+  const adjustRules = mlConfig.adjustRules;
+
+  // Ajuste por confianca (prob_gt_2x)
+  if (adjustRules.betSizeByConfidence.enabled) {
+    const prob2x = mlPrediction.prob_gt_2x || 0;
+    const conf = adjustRules.betSizeByConfidence;
+
+    if (prob2x >= conf.highConfidence.minProb) {
+      result.multiplier *= conf.highConfidence.multiplier;
+      result.reasons.push(`ML: Alta confianca (${(prob2x * 100).toFixed(0)}%) +${((conf.highConfidence.multiplier - 1) * 100).toFixed(0)}%`);
+    } else if (prob2x >= conf.mediumConfidence.minProb) {
+      result.multiplier *= conf.mediumConfidence.multiplier;
+      // Sem ajuste, mantem normal
+    } else if (prob2x >= conf.lowConfidence.minProb) {
+      result.multiplier *= conf.lowConfidence.multiplier;
+      result.reasons.push(`ML: Confianca baixa (${(prob2x * 100).toFixed(0)}%) ${((conf.lowConfidence.multiplier - 1) * 100).toFixed(0)}%`);
+    } else {
+      result.multiplier *= conf.veryLowConfidence.multiplier;
+      result.reasons.push(`ML: Confianca muito baixa (${(prob2x * 100).toFixed(0)}%) ${((conf.veryLowConfidence.multiplier - 1) * 100).toFixed(0)}%`);
+    }
+  }
+
+  // Reducao por risco de crash precoce
+  if (adjustRules.reduceOnRisk.enabled) {
+    const probEarly = mlPrediction.prob_early_crash || 0;
+    if (probEarly > adjustRules.reduceOnRisk.earlyCrashThreshold) {
+      result.multiplier *= adjustRules.reduceOnRisk.reductionFactor;
+      result.reasons.push(`ML: Risco crash (${(probEarly * 100).toFixed(0)}%) -${((1 - adjustRules.reduceOnRisk.reductionFactor) * 100).toFixed(0)}%`);
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Calcula o cashout recomendado pelo ML
+ * Retorna: { cashout: number, reason: string } ou null se nao aplicavel
+ */
+function calculateMLRecommendedCashout(botId = 'bot1') {
+  const botConfig = bots[botId].config;
+  const mlConfig = botConfig.mlConfig;
+
+  if (!mlConfig.enabled || !isMLAvailable()) {
+    return null;
+  }
+
+  const cashoutRules = mlConfig.adjustRules.cashoutByProb;
+  if (!cashoutRules.enabled) {
+    return null;
+  }
+
+  // Verifica do mais agressivo para o mais conservador
+  const prob5x = mlPrediction.prob_gt_5x || 0;
+  const prob3x = mlPrediction.prob_gt_3x || 0;
+
+  if (prob5x > cashoutRules.aggressive.threshold) {
+    return {
+      cashout: cashoutRules.aggressive.cashout,
+      reason: `ML: Prob 5x alta (${(prob5x * 100).toFixed(0)}%)`
+    };
+  }
+
+  if (prob3x > cashoutRules.medium.threshold) {
+    return {
+      cashout: cashoutRules.medium.cashout,
+      reason: `ML: Prob 3x boa (${(prob3x * 100).toFixed(0)}%)`
+    };
+  }
+
+  return {
+    cashout: cashoutRules.conservative.cashout,
+    reason: 'ML: Conservador'
+  };
+}
+
+/**
+ * Verifica se ML deve fazer override da analise de sequencias
+ * Retorna: { shouldOverride: boolean, reason: string }
+ */
+function shouldMLOverrideSequences(botId = 'bot1') {
+  const botConfig = bots[botId].config;
+  const mlConfig = botConfig.mlConfig;
+
+  if (!mlConfig.enabled || !isMLAvailable() || !mlConfig.overrideSequences.enabled) {
+    return { shouldOverride: false, reason: null };
+  }
+
+  const prob2x = mlPrediction.prob_gt_2x || 0;
+  if (prob2x >= mlConfig.overrideSequences.minProbToOverride) {
+    return {
+      shouldOverride: true,
+      reason: `ML override: Alta confianca (${(prob2x * 100).toFixed(0)}%)`
+    };
+  }
+
+  return { shouldOverride: false, reason: null };
+}
+
+/**
+ * Avaliacao completa do ML para decisao de aposta
+ * Combina todas as regras e retorna decisao final
+ */
+function evaluateMLDecision(botId = 'bot1') {
+  const botConfig = bots[botId].config;
+  const mlConfig = botConfig.mlConfig;
+
+  const result = {
+    mlEnabled: mlConfig.enabled,
+    mlAvailable: isMLAvailable(),
+    mlAge: getMLPredictionAge(),
+    canBet: true,
+    shouldBet: null, // null = sem opiniao, true = apostar, false = nao apostar
+    reasons: [],
+    adjustments: {
+      betMultiplier: 1.0,
+      recommendedCashout: null
+    },
+    prediction: mlPrediction
+  };
+
+  // Se ML desabilitado, retorna neutro
+  if (!mlConfig.enabled) {
+    result.reasons.push('ML desabilitado');
+    return result;
+  }
+
+  // Se ML nao disponivel
+  if (!isMLAvailable()) {
+    result.mlAvailable = false;
+    if (mlConfig.requireML) {
+      result.canBet = false;
+      result.shouldBet = false;
+      result.reasons.push('ML indisponivel (requerido)');
+    } else {
+      result.reasons.push('ML indisponivel (usando fallback)');
+    }
+    return result;
+  }
+
+  // Avalia regras de bloqueio
+  const blockResult = evaluateMLBlockRules(botId);
+  if (blockResult.blocked) {
+    result.canBet = false;
+    result.shouldBet = false;
+    result.reasons.push(...blockResult.reasons);
+    return result;
+  }
+
+  // Avalia regras de requisito
+  const requireResult = evaluateMLRequireRules(botId);
+  if (!requireResult.passed) {
+    result.shouldBet = false;
+    result.reasons.push(...requireResult.reasons);
+    // Nao bloqueia completamente, apenas recomenda nao apostar
+  }
+
+  // Calcula ajustes
+  const betAdjust = calculateMLBetAdjustments(botId);
+  result.adjustments.betMultiplier = betAdjust.multiplier;
+  result.reasons.push(...betAdjust.reasons);
+
+  // Calcula cashout recomendado
+  const cashoutRecommend = calculateMLRecommendedCashout(botId);
+  if (cashoutRecommend) {
+    result.adjustments.recommendedCashout = cashoutRecommend;
+    result.reasons.push(cashoutRecommend.reason);
+  }
+
+  // Se passou em tudo e tem boa prob, recomenda apostar
+  if (requireResult.passed && mlPrediction.prob_gt_2x > 0.5) {
+    result.shouldBet = true;
+    result.reasons.push(`ML: Condicoes favoraveis (${(mlPrediction.prob_gt_2x * 100).toFixed(0)}% > 2x)`);
+  }
+
+  return result;
+}
+
+/**
+ * Gera resumo das previsoes ML para exibicao
+ */
+function getMLSummary() {
+  if (!isMLAvailable()) {
+    return {
+      available: false,
+      status: 'Aguardando...',
+      recommendations: []
+    };
+  }
+
+  const prob2x = mlPrediction.prob_gt_2x || 0;
+  const prob5x = mlPrediction.prob_gt_5x || 0;
+  const probEarly = mlPrediction.prob_early_crash || 0;
+  const probLoss = mlPrediction.prob_high_loss_streak || 0;
+
+  const recommendations = [];
+
+  // Analisa situacao
+  if (probLoss > 0.5) {
+    recommendations.push({ type: 'danger', text: 'Sequencia ruim detectada - evite apostas' });
+  } else if (probEarly > 0.35) {
+    recommendations.push({ type: 'warning', text: 'Risco de crash precoce elevado' });
+  }
+
+  if (prob2x > 0.6) {
+    recommendations.push({ type: 'success', text: `Boa chance de 2x (${(prob2x * 100).toFixed(0)}%)` });
+  }
+
+  if (prob5x > 0.35) {
+    recommendations.push({ type: 'info', text: `Chance razoavel de 5x (${(prob5x * 100).toFixed(0)}%)` });
+  }
+
+  let status = 'Neutro';
+  if (probLoss > 0.5 || probEarly > 0.35) {
+    status = 'Desfavoravel';
+  } else if (prob2x > 0.55) {
+    status = 'Favoravel';
+  }
+
+  return {
+    available: true,
+    status,
+    age: getMLPredictionAge(),
+    prob2x,
+    prob5x,
+    probEarly,
+    probLoss,
+    recommendations
+  };
+}
+
+// ============================================================
+// ========== FIM DO MOTOR DE REGRAS ML ==========
+// ============================================================
 
 /**
  * Verifica se deve apostar baseado em regras de risco
@@ -1926,6 +2528,9 @@ function updateConfigUI(botId = activeBotTab) {
   // Atualiza estado visual dos grupos de config
   updateConfigGroupVisibility(botId);
   updateConfigSummary(botId);
+
+  // Inicializa ML Config
+  initMLConfigFromState(botId);
 }
 
 /**
@@ -1946,6 +2551,77 @@ function updateConfigGroupVisibility(botId = activeBotTab) {
   if (elements.dynamicCashoutEnabled && elements.dynamicCashoutBody) {
     elements.dynamicCashoutBody.classList.toggle('disabled', !elements.dynamicCashoutEnabled.checked);
   }
+}
+
+/**
+ * Atualiza visibilidade do config body do ML
+ */
+function updateMLConfigVisibility(botId = activeBotTab) {
+  const elements = getBotElements(botId);
+
+  if (elements.mlEnabled && elements.mlConfigBody) {
+    elements.mlConfigBody.classList.toggle('disabled', !elements.mlEnabled.checked);
+  }
+}
+
+/**
+ * Inicializa os inputs do ML Config a partir do estado salvo
+ */
+function initMLConfigFromState(botId = activeBotTab) {
+  const botConfig = bots[botId].config;
+  const elements = getBotElements(botId);
+  const mlConfig = botConfig.mlConfig;
+
+  // Enabled toggle
+  if (elements.mlEnabled) {
+    elements.mlEnabled.checked = mlConfig.enabled;
+  }
+
+  // Mode
+  if (elements.mlMode) {
+    elements.mlMode.value = mlConfig.mode;
+  }
+
+  // Require ML
+  if (elements.mlRequire) {
+    elements.mlRequire.checked = mlConfig.requireML;
+  }
+
+  // Block rules
+  if (elements.mlBlockEarlyCrash) {
+    elements.mlBlockEarlyCrash.checked = mlConfig.blockRules.earlyCrash.enabled;
+  }
+  if (elements.mlBlockEarlyCrashThreshold) {
+    elements.mlBlockEarlyCrashThreshold.value = Math.round(mlConfig.blockRules.earlyCrash.threshold * 100);
+  }
+  if (elements.mlBlockLossStreak) {
+    elements.mlBlockLossStreak.checked = mlConfig.blockRules.highLossStreak.enabled;
+  }
+  if (elements.mlBlockLossStreakThreshold) {
+    elements.mlBlockLossStreakThreshold.value = Math.round(mlConfig.blockRules.highLossStreak.threshold * 100);
+  }
+  if (elements.mlBlockLowProb2x) {
+    elements.mlBlockLowProb2x.checked = mlConfig.blockRules.lowProb2x.enabled;
+  }
+  if (elements.mlBlockLowProb2xThreshold) {
+    elements.mlBlockLowProb2xThreshold.value = Math.round(mlConfig.blockRules.lowProb2x.threshold * 100);
+  }
+
+  // Adjust rules
+  if (elements.mlAdjustBetSize) {
+    elements.mlAdjustBetSize.checked = mlConfig.adjustRules.betSizeByConfidence.enabled;
+  }
+
+  // Override sequences
+  if (elements.mlOverrideSequences) {
+    elements.mlOverrideSequences.checked = mlConfig.overrideSequences.enabled;
+  }
+  if (elements.mlOverrideThreshold) {
+    elements.mlOverrideThreshold.value = Math.round(mlConfig.overrideSequences.minProbToOverride * 100);
+  }
+
+  // Update visibility
+  updateMLConfigVisibility(botId);
 }
 
 /**
@@ -2014,6 +2690,54 @@ function readConfigFromInputs(botId = activeBotTab) {
     if (val >= 1.01 && val <= 10) botConfig.dynamicCashout.aggressive = val;
   }
 
+  // ML Config
+  if (elements.mlEnabled) {
+    botConfig.mlConfig.enabled = elements.mlEnabled.checked;
+    // Update ML config body visibility
+    if (elements.mlConfigBody) {
+      elements.mlConfigBody.classList.toggle('disabled', !elements.mlEnabled.checked);
+    }
+  }
+  if (elements.mlMode) botConfig.mlConfig.mode = elements.mlMode.value;
+  if (elements.mlRequire) botConfig.mlConfig.requireML = elements.mlRequire.checked;
+
+  // Block Rules
+  if (elements.mlBlockEarlyCrash) {
+    botConfig.mlConfig.blockRules.earlyCrash.enabled = elements.mlBlockEarlyCrash.checked;
+  }
+  if (elements.mlBlockEarlyCrashThreshold) {
+    const val = parseFloat(elements.mlBlockEarlyCrashThreshold.value);
+    if (val >= 0 && val <= 100) botConfig.mlConfig.blockRules.earlyCrash.threshold = val / 100;
+  }
+  if (elements.mlBlockLossStreak) {
+    botConfig.mlConfig.blockRules.highLossStreak.enabled = elements.mlBlockLossStreak.checked;
+  }
+  if (elements.mlBlockLossStreakThreshold) {
+    const val = parseFloat(elements.mlBlockLossStreakThreshold.value);
+    if (val >= 0 && val <= 100) botConfig.mlConfig.blockRules.highLossStreak.threshold = val / 100;
+  }
+  if (elements.mlBlockLowProb2x) {
+    botConfig.mlConfig.blockRules.lowProb2x.enabled = elements.mlBlockLowProb2x.checked;
+  }
+  if (elements.mlBlockLowProb2xThreshold) {
+    const val = parseFloat(elements.mlBlockLowProb2xThreshold.value);
+    if (val >= 0 && val <= 100) botConfig.mlConfig.blockRules.lowProb2x.threshold = val / 100;
+  }
+
+  // Adjust Rules
+  if (elements.mlAdjustBetSize) {
+    botConfig.mlConfig.adjustRules.betSizeByConfidence.enabled = elements.mlAdjustBetSize.checked;
+  }
+
+  // Override Sequences
+  if (elements.mlOverrideSequences) {
+    botConfig.mlConfig.overrideSequences.enabled = elements.mlOverrideSequences.checked;
+  }
+  if (elements.mlOverrideThreshold) {
+    const val = parseFloat(elements.mlOverrideThreshold.value);
+    if (val >= 50 && val <= 100) botConfig.mlConfig.overrideSequences.minProbToOverride = val / 100;
+  }
+
   saveBotConfig(botId);
   updateConfigSummary(botId);
 }
@@ -2050,6 +2774,9 @@ function getBotElements(botId) {
     wins: document.getElementById(`${botId}Wins`),
     profit: document.getElementById(`${botId}Profit`),
     roi: document.getElementById(`${botId}ROI`),
+    minBalance: document.getElementById(`${botId}MinBalance`),
+    maxBalance: document.getElementById(`${botId}MaxBalance`),
+    initialBalanceEl: document.getElementById(`${botId}InitialBalance`),
     // Histórico
     historyList: document.getElementById(`${botId}HistoryList`),
     // Configurações
@@ -2079,6 +2806,20 @@ function getBotElements(botId) {
     // Regras
     rulesToggle: document.getElementById(`${botId}RulesToggle`),
     rulesBody: document.getElementById(`${botId}RulesBody`),
+    // ML Config
+    mlEnabled: document.getElementById(`${botId}MLEnabled`),
+    mlConfigBody: document.getElementById(`${botId}MLConfigBody`),
+    mlMode: document.getElementById(`${botId}MLMode`),
+    mlRequire: document.getElementById(`${botId}MLRequire`),
+    mlBlockEarlyCrash: document.getElementById(`${botId}MLBlockEarlyCrash`),
+    mlBlockEarlyCrashThreshold: document.getElementById(`${botId}MLBlockEarlyCrashThreshold`),
+    mlBlockLossStreak: document.getElementById(`${botId}MLBlockLossStreak`),
+    mlBlockLossStreakThreshold: document.getElementById(`${botId}MLBlockLossStreakThreshold`),
+    mlBlockLowProb2x: document.getElementById(`${botId}MLBlockLowProb2x`),
+    mlBlockLowProb2xThreshold: document.getElementById(`${botId}MLBlockLowProb2xThreshold`),
+    mlAdjustBetSize: document.getElementById(`${botId}MLAdjustBetSize`),
+    mlOverrideSequences: document.getElementById(`${botId}MLOverrideSequences`),
+    mlOverrideThreshold: document.getElementById(`${botId}MLOverrideThreshold`),
     // Tab elements
     panel: document.getElementById(`${botId}Panel`),
     tabBalance: document.getElementById(`${botId}TabBalance`),
@@ -2316,6 +3057,14 @@ async function syncPlatformBalance(botId = 'bot1', forceSync = false) {
       botState.balance = result.balance;
       botState.initialBalance = result.balance;
 
+      // Atualiza min/max balance
+      if (botState.balance < botState.minBalance) {
+        botState.minBalance = botState.balance;
+      }
+      if (botState.balance > botState.maxBalance) {
+        botState.maxBalance = botState.balance;
+      }
+
       console.log(`[Bot ${botId}] Saldo sincronizado: ${formatCurrency(oldBalance)} -> ${formatCurrency(result.balance)}`);
 
       saveBotState(botId);
@@ -2390,6 +3139,29 @@ function setupBotEventListeners(botId) {
     elements.cashoutConservative, elements.cashoutNormal, elements.cashoutAggressive
   ];
   configInputs.forEach(input => {
+    if (input) {
+      input.addEventListener('change', () => readConfigFromInputs(botId));
+    }
+  });
+
+  // ML Config toggle
+  if (elements.mlEnabled) {
+    elements.mlEnabled.addEventListener('change', () => {
+      readConfigFromInputs(botId);
+      updateMLConfigVisibility(botId);
+    });
+  }
+
+  // ML Config inputs
+  const mlConfigInputs = [
+    elements.mlMode, elements.mlRequire,
+    elements.mlBlockEarlyCrash, elements.mlBlockEarlyCrashThreshold,
+    elements.mlBlockLossStreak, elements.mlBlockLossStreakThreshold,
+    elements.mlBlockLowProb2x, elements.mlBlockLowProb2xThreshold,
+    elements.mlAdjustBetSize,
+    elements.mlOverrideSequences, elements.mlOverrideThreshold
+  ];
+  mlConfigInputs.forEach(input => {
     if (input) {
       input.addEventListener('change', () => readConfigFromInputs(botId));
     }
@@ -2595,6 +3367,8 @@ function saveBalanceEdit(botId = activeBotTab) {
   // Atualiza a banca
   botState.balance = newBalance;
   botState.initialBalance = newBalance;
+  botState.minBalance = newBalance;  // Reseta o mínimo ao editar banca manualmente
+  botState.maxBalance = newBalance;  // Reseta o máximo ao editar banca manualmente
   saveBotState(botId);
 
   console.log(`[Bot ${botId}] Banca atualizada: R$ ${newBalance.toFixed(2)}`);
@@ -2876,6 +3650,10 @@ async function toggleBot(botId = activeBotTab) {
     if (botState.activeBet) {
       const refund = botState.activeBet.amount * 2;
       botState.balance += refund;
+      // Atualiza maxBalance se necessário
+      if (botState.balance > botState.maxBalance) {
+        botState.maxBalance = botState.balance;
+      }
       console.log(`[Bot ${botId}] Aposta cancelada, devolvido: ${formatCurrency(refund)}`);
       console.log(`[Bot ${botId}] Saldo após devolução: ${formatCurrency(botState.balance)}`);
       botState.activeBet = null;
@@ -2946,6 +3724,7 @@ function analyzeBotDecision(botId = 'bot1') {
   const botData = bots[botId];
   const botState = botData.state;
   const botConfig = botData.config;
+  const mlConfig = botConfig.mlConfig;
 
   // ========== VERIFICAÇÃO DE RISCO PRIMEIRO ==========
   const riskCheck = checkRiskRules(botId);
@@ -2955,7 +3734,34 @@ function analyzeBotDecision(botId = 'bot1') {
       reasons: riskCheck.issues,
       targetCashout2: botConfig.cashout2Default,
       isHighOpportunity: false,
-      riskBlocked: true
+      riskBlocked: true,
+      mlDecision: null
+    };
+  }
+
+  // ========== AVALIAÇÃO ML ==========
+  const mlDecision = evaluateMLDecision(botId);
+
+  // Se ML bloqueia a aposta, retorna imediatamente
+  if (mlConfig.enabled && !mlDecision.canBet) {
+    return {
+      shouldBet: false,
+      reasons: mlDecision.reasons,
+      targetCashout2: botConfig.cashout2Default,
+      isHighOpportunity: false,
+      mlBlocked: true,
+      mlDecision
+    };
+  }
+
+  // Se ML requer e não está disponível
+  if (mlConfig.enabled && mlConfig.requireML && !mlDecision.mlAvailable) {
+    return {
+      shouldBet: false,
+      reasons: ['ML indisponível (requerido para este bot)'],
+      targetCashout2: botConfig.cashout2Default,
+      isHighOpportunity: false,
+      mlDecision
     };
   }
 
@@ -2964,7 +3770,8 @@ function analyzeBotDecision(botId = 'bot1') {
       shouldBet: false,
       reasons: ['Dados insuficientes para análise'],
       targetCashout2: botConfig.cashout2Default,
-      isHighOpportunity: false
+      isHighOpportunity: false,
+      mlDecision
     };
   }
 
@@ -2975,8 +3782,23 @@ function analyzeBotDecision(botId = 'bot1') {
   let isHighOpportunity = false;
 
   // Calcula tamanho ideal da aposta e primeiro cashout
-  const betSizeInfo = calculateOptimalBetSize(botId);
+  let betSizeInfo = calculateOptimalBetSize(botId);
   const cashout1Info = calculateOptimalCashout1(botId);
+
+  // ========== APLICA AJUSTES ML NO TAMANHO DA APOSTA ==========
+  if (mlConfig.enabled && mlDecision.mlAvailable && mlDecision.adjustments.betMultiplier !== 1.0) {
+    const mlMultiplier = mlDecision.adjustments.betMultiplier;
+    const adjustedAmount = Math.max(
+      RISK_CONFIG.minBetAmount,
+      Math.round(betSizeInfo.amount * mlMultiplier * 100) / 100
+    );
+    betSizeInfo = {
+      ...betSizeInfo,
+      amount: adjustedAmount,
+      mlMultiplier,
+      mlAdjusted: true
+    };
+  }
 
   // Extrai dados das sequências
   const seq2x = seq.below2x || { currentStreak: 0, avgRoundsToHit: 2, deviationRatio: 0, status: 'normal' };
@@ -3085,12 +3907,50 @@ function analyzeBotDecision(botId = 'bot1') {
     reasons.push(`-> Aposta padrão: ~2.10x e ~5.10x`);
 
   // ========================================
-  // NÃO APOSTAR: Aguardando condições
+  // NÃO APOSTAR: Aguardando condições (Sequências)
   // ========================================
   } else {
-    reasons.push(`2x: ${seq2x.status} (${seq2x.currentStreak}/${Math.round(seq2x.avgRoundsToHit)})`);
-    reasons.push(`5x: ${seq5x.status} (${seq5x.currentStreak}/${Math.round(seq5x.avgRoundsToHit)})`);
-    reasons.push('-> Aguardando 2x ou 5x ficar overdue');
+    // Verifica se ML deve fazer override das sequências
+    const mlOverride = shouldMLOverrideSequences(botId);
+
+    if (mlConfig.enabled && mlOverride.shouldOverride && mlDecision.shouldBet === true) {
+      // ML confia o suficiente para apostar mesmo sem sequências favoráveis
+      shouldBet = true;
+      reasons.push(`[ML OVERRIDE] ${mlOverride.reason}`);
+      reasons.push(`2x: ${seq2x.status} (${seq2x.currentStreak}/${Math.round(seq2x.avgRoundsToHit)}) - ignorado pelo ML`);
+      reasons.push(`5x: ${seq5x.status} (${seq5x.currentStreak}/${Math.round(seq5x.avgRoundsToHit)}) - ignorado pelo ML`);
+
+      // Usa cashout recomendado pelo ML
+      if (mlDecision.adjustments.recommendedCashout) {
+        targetCashout2 = mlDecision.adjustments.recommendedCashout.cashout;
+        reasons.push(`Cashout ML: ${targetCashout2}x`);
+      }
+    } else {
+      // Comportamento normal - não aposta
+      reasons.push(`2x: ${seq2x.status} (${seq2x.currentStreak}/${Math.round(seq2x.avgRoundsToHit)})`);
+      reasons.push(`5x: ${seq5x.status} (${seq5x.currentStreak}/${Math.round(seq5x.avgRoundsToHit)})`);
+      reasons.push('-> Aguardando 2x ou 5x ficar overdue');
+
+      // Se ML recomenda não apostar, mostra o motivo
+      if (mlConfig.enabled && mlDecision.mlAvailable && mlDecision.shouldBet === false) {
+        reasons.push(`---`);
+        reasons.push(`[ML] Não recomenda aposta`);
+        mlDecision.reasons.slice(0, 2).forEach(r => reasons.push(`  ${r}`));
+      }
+    }
+  }
+
+  // ========== AJUSTE FINAL DE CASHOUT PELO ML ==========
+  // Se ML está ativo e tem recomendação de cashout, pode ajustar
+  if (shouldBet && mlConfig.enabled && mlDecision.mlAvailable) {
+    const mlCashout = mlDecision.adjustments.recommendedCashout;
+    if (mlCashout && !isHighOpportunity) {
+      // Para apostas normais (não ciclo), ML pode sugerir cashout
+      // Usa o maior entre o sugerido pelo ML e o padrão
+      if (mlCashout.cashout > targetCashout2) {
+        targetCashout2 = mlCashout.cashout;
+      }
+    }
   }
 
   // Adiciona informações de gestão de risco quando vai apostar
@@ -3100,12 +3960,21 @@ function analyzeBotDecision(botId = 'bot1') {
     if (betSizeInfo.isReduced) {
       reasons.push(`${betSizeInfo.reasons.join(', ')}`);
     }
+    if (betSizeInfo.mlAdjusted) {
+      reasons.push(`[ML] Ajuste: ${((betSizeInfo.mlMultiplier - 1) * 100).toFixed(0)}%`);
+    }
     reasons.push(`Cashout 1: ${cashout1Info.base}x (${cashout1Info.reason})`);
 
     // Mostra status de risco
     const riskStats = getRiskStats(botId);
     if (riskStats.consecutiveLosses > 0) {
       reasons.push(`Perdas seguidas: ${riskStats.consecutiveLosses}`);
+    }
+
+    // Mostra status ML
+    if (mlConfig.enabled && mlDecision.mlAvailable) {
+      const prob2x = (mlPrediction.prob_gt_2x * 100).toFixed(0);
+      reasons.push(`[ML] Prob 2x: ${prob2x}%`);
     }
   }
 
@@ -3115,7 +3984,8 @@ function analyzeBotDecision(botId = 'bot1') {
     targetCashout2,
     isHighOpportunity,
     betSizeInfo,
-    cashout1Info
+    cashout1Info,
+    mlDecision
   };
 }
 
@@ -3136,30 +4006,40 @@ function renderBotDecision(decision, botId = activeBotTab) {
   const elements = getBotElements(botId);
   const botState = bots[botId].state;
 
-  if (!elements.decisionBox || !elements.decisionContent) return;
+  if (!elements.decision || !elements.decisionContent) return;
 
   // Remove classes anteriores
-  elements.decisionBox.classList.remove('should-bet', 'should-wait', 'high-opportunity');
+  elements.decision.classList.remove('should-bet', 'should-wait', 'high-opportunity', 'inactive');
 
-  if (!botState.active) {
-    elements.decisionContent.innerHTML = '<p class="bot-waiting">Aguardando ativação...</p>';
+  // Se não há decisão ainda (sem dados), mostra mensagem de espera
+  if (!decision || !decision.reasons || decision.reasons.length === 0) {
+    elements.decisionContent.innerHTML = '<p class="bot-waiting">Aguardando dados...</p>';
     return;
   }
 
   // Define classe do box
-  if (decision.isHighOpportunity) {
-    elements.decisionBox.classList.add('high-opportunity');
+  if (!botState.active) {
+    elements.decision.classList.add('inactive');
+  } else if (decision.isHighOpportunity) {
+    elements.decision.classList.add('high-opportunity');
   } else if (decision.shouldBet) {
-    elements.decisionBox.classList.add('should-bet');
+    elements.decision.classList.add('should-bet');
   } else {
-    elements.decisionBox.classList.add('should-wait');
+    elements.decision.classList.add('should-wait');
   }
 
   // Monta HTML
   let actionClass = decision.shouldBet ? (decision.isHighOpportunity ? 'high' : 'bet') : 'wait';
   let actionText = decision.shouldBet ? (decision.isHighOpportunity ? 'OPORTUNIDADE RARA!' : 'APOSTAR') : 'AGUARDAR';
 
+  // Se bot inativo, mostra indicador
+  let inactiveNotice = '';
+  if (!botState.active) {
+    inactiveNotice = '<div class="decision-inactive-notice">⏸ Bot desativado - apenas análise</div>';
+  }
+
   let html = `
+    ${inactiveNotice}
     <div class="decision-action ${actionClass}">
       <span>${actionText}</span>
     </div>
@@ -3273,6 +4153,12 @@ async function placeBotBet(botId, decision) {
   // SEMPRE debita do saldo ao colocar aposta
   const balanceBefore = botState.balance;
   botState.balance -= totalAmount;
+
+  // Atualiza o saldo mínimo se necessário
+  if (botState.balance < botState.minBalance) {
+    botState.minBalance = botState.balance;
+  }
+
   console.log(`[Bot ${botId}] SALDO: ${formatCurrency(balanceBefore)} -> ${formatCurrency(botState.balance)} (-${formatCurrency(totalAmount)})`);
 
   saveBotState(botId);
@@ -3363,6 +4249,11 @@ async function resolveBotBet(botId, roundMultiplier) {
   // Adiciona os ganhos ao saldo
   const balanceBefore = botState.balance;
   botState.balance += winnings;
+
+  // Atualiza maxBalance se necessário
+  if (botState.balance > botState.maxBalance) {
+    botState.maxBalance = botState.balance;
+  }
 
   console.log(`[Bot ${botId}] RESULTADO: Mult=${roundMultiplier}x | Ganho=${formatCurrency(winnings)} | Lucro=${formatCurrency(profit)} | Saldo: ${formatCurrency(balanceBefore)} -> ${formatCurrency(botState.balance)}`);
 
@@ -3555,6 +4446,21 @@ function renderBot(botId = activeBotTab) {
     const roi = botState.stats.totalWagered > 0 ? ((botState.stats.totalProfit / botState.stats.totalWagered) * 100).toFixed(1) : 0;
     elements.roi.textContent = `${roi}%`;
     elements.roi.className = `sim-stat-value ${parseFloat(roi) >= 0 ? 'positive' : 'negative'}`;
+  }
+  if (elements.minBalance) {
+    elements.minBalance.textContent = formatCurrency(botState.minBalance);
+    // Destacar em vermelho se chegou perto de quebrar (menos de 20% da banca inicial)
+    const dangerThreshold = botState.initialBalance * 0.2;
+    elements.minBalance.className = `sim-stat-value ${botState.minBalance <= dangerThreshold ? 'negative' : ''}`;
+  }
+  if (elements.maxBalance) {
+    elements.maxBalance.textContent = formatCurrency(botState.maxBalance);
+    // Destacar em verde se teve ganho significativo (mais de 20% acima do inicial)
+    const successThreshold = botState.initialBalance * 1.2;
+    elements.maxBalance.className = `sim-stat-value ${botState.maxBalance >= successThreshold ? 'positive' : ''}`;
+  }
+  if (elements.initialBalanceEl) {
+    elements.initialBalanceEl.textContent = formatCurrency(botState.initialBalance);
   }
 
   // Aposta ativa

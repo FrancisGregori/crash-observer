@@ -11,7 +11,20 @@
       "Bash(python3:*)",
       "Bash(lsof:*)",
       "Bash(xargs kill:*)",
-      "Bash(node --check:*)"
+      "Bash(node --check:*)",
+      "Bash(wc:*)",
+      "Bash(tree:*)",
+      "Bash(find:*)",
+      "Bash(chmod:*)",
+      "Bash(source venv/bin/activate)",
+      "Bash(pip install:*)",
+      "Bash(sqlite3:*)",
+      "Bash(python training.py:*)",
+      "Bash(brew install:*)",
+      "Bash(redis-cli ping:*)",
+      "Bash(docker run:*)",
+      "Bash(docker exec:*)",
+      "Bash(npm install:*)"
     ]
   }
 }

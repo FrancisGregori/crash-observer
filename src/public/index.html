@@ -258,6 +258,75 @@
             </div>
           </div>
 
+          <!-- ML Predictions -->
+          <div class="ml-predictions-section" id="mlPredictionsSection">
+            <h3>
+              <span class="ml-icon">🤖</span>
+              Previsões ML
+              <span class="ml-status" id="mlStatus">Aguardando...</span>
+            </h3>
+            <div class="ml-predictions-grid" id="mlPredictionsGrid">
+              <div class="ml-prediction-item">
+                <span class="ml-label">&gt; 2x</span>
+                <div class="ml-bar-container">
+                  <div class="ml-bar" id="mlBar2x" style="width: 0%"></div>
+                </div>
+                <span class="ml-value" id="mlProb2x">-</span>
+              </div>
+              <div class="ml-prediction-item">
+                <span class="ml-label">&gt; 3x</span>
+                <div class="ml-bar-container">
+                  <div class="ml-bar" id="mlBar3x" style="width: 0%"></div>
+                </div>
+                <span class="ml-value" id="mlProb3x">-</span>
+              </div>
+              <div class="ml-prediction-item">
+                <span class="ml-label">&gt; 4x</span>
+                <div class="ml-bar-container">
+                  <div class="ml-bar" id="mlBar4x" style="width: 0%"></div>
+                </div>
+                <span class="ml-value" id="mlProb4x">-</span>
+              </div>
+              <div class="ml-prediction-item">
+                <span class="ml-label">&gt; 5x</span>
+                <div class="ml-bar-container">
+                  <div class="ml-bar" id="mlBar5x" style="width: 0%"></div>
+                </div>
+                <span class="ml-value" id="mlProb5x">-</span>
+              </div>
+              <div class="ml-prediction-item">
+                <span class="ml-label">&gt; 7x</span>
+                <div class="ml-bar-container">
+                  <div class="ml-bar" id="mlBar7x" style="width: 0%"></div>
+                </div>
+                <span class="ml-value" id="mlProb7x">-</span>
+              </div>
+              <div class="ml-prediction-item">
+                <span class="ml-label">&gt; 10x</span>
+                <div class="ml-bar-container">
+                  <div class="ml-bar" id="mlBar10x" style="width: 0%"></div>
+                </div>
+                <span class="ml-value" id="mlProb10x">-</span>
+              </div>
+            </div>
+            <div class="ml-warnings">
+              <div class="ml-warning-item" id="mlEarlyCrash">
+                <span class="warning-icon">⚠️</span>
+                <span class="warning-label">Crash Precoce:</span>
+                <span class="warning-value" id="mlEarlyCrashValue">-</span>
+              </div>
+              <div class="ml-warning-item" id="mlLossStreak">
+                <span class="warning-icon">📉</span>
+                <span class="warning-label">Sequência Ruim:</span>
+                <span class="warning-value" id="mlLossStreakValue">-</span>
+              </div>
+            </div>
+            <div class="ml-meta">
+              <span class="ml-round">Round: <span id="mlRoundId">-</span></span>
+              <span class="ml-version">v<span id="mlModelVersion">-</span></span>
+            </div>
+          </div>
+
           <!-- Taxas de Sucesso por Cashout -->
           <div class="success-rates-section">
             <h3>Taxas de Sucesso por Cashout</h3>
@@ -544,6 +613,18 @@
                     <span class="sim-stat-label">ROI</span>
                     <span class="sim-stat-value" id="bot1ROI">0%</span>
                   </div>
+                  <div class="sim-stat">
+                    <span class="sim-stat-label">Min. Banca</span>
+                    <span class="sim-stat-value" id="bot1MinBalance">R$ 100,00</span>
+                  </div>
+                  <div class="sim-stat">
+                    <span class="sim-stat-label">Max. Banca</span>
+                    <span class="sim-stat-value" id="bot1MaxBalance">R$ 100,00</span>
+                  </div>
+                  <div class="sim-stat">
+                    <span class="sim-stat-label">Inicial</span>
+                    <span class="sim-stat-value" id="bot1InitialBalance">R$ 100,00</span>
+                  </div>
                 </div>
               </div>
 
@@ -558,7 +639,7 @@
               <!-- Configuração do Bot (Collapsível) -->
               <div class="bot-config-section collapsible" id="bot1ConfigSection">
                 <div class="config-header" id="bot1ConfigToggle">
-                  <h3>Configuracoes</h3>
+                  <h3>Configurações</h3>
                   <span class="config-toggle-icon">▼</span>
                 </div>
                 <div class="config-body" id="bot1ConfigBody">
@@ -682,6 +763,113 @@
                     </div>
                   </div>
 
+                  <!-- Configuracoes ML -->
+                  <div class="config-group ml-config-group">
+                    <div class="config-group-header">
+                      <label class="toggle-switch small">
+                        <input type="checkbox" id="bot1MLEnabled">
+                        <span class="toggle-slider"></span>
+                      </label>
+                      <span class="config-group-title">
+                        <span class="ml-badge">ML</span>
+                        Integracao Machine Learning
+                      </span>
+                    </div>
+                    <div class="config-group-body ml-config-body" id="bot1MLConfigBody">
+                      <!-- Modo e Requisitos -->
+                      <div class="ml-config-section">
+                        <div class="config-row">
+                          <div class="config-col">
+                            <label>Modo</label>
+                            <select id="bot1MLMode">
+                              <option value="enhance">Complementar</option>
+                              <option value="override">Substituto</option>
+                            </select>
+                          </div>
+                          <div class="config-col">
+                            <label class="checkbox-label">
+                              <input type="checkbox" id="bot1MLRequire">
+                              <span>Exigir ML</span>
+                            </label>
+                            <small class="config-hint">Nao aposta sem ML</small>
+                          </div>
+                        </div>
+                      </div>
+
+                      <!-- Regras de Bloqueio -->
+                      <div class="ml-config-section">
+                        <h4 class="ml-section-title">Regras de Bloqueio</h4>
+                        <div class="ml-rule-row">
+                          <label class="checkbox-label">
+                            <input type="checkbox" id="bot1MLBlockEarlyCrash" checked>
+                            <span>Crash Precoce &gt;</span>
+                          </label>
+                          <input type="number" id="bot1MLBlockEarlyCrashThreshold" value="35" min="0" max="100" step="5" class="threshold-input">
+                          <span class="threshold-suffix">%</span>
+                        </div>
+                        <div class="ml-rule-row">
+                          <label class="checkbox-label">
+                            <input type="checkbox" id="bot1MLBlockLossStreak" checked>
+                            <span>Sequencia Ruim &gt;</span>
+                          </label>
+                          <input type="number" id="bot1MLBlockLossStreakThreshold" value="50" min="0" max="100" step="5" class="threshold-input">
+                          <span class="threshold-suffix">%</span>
+                        </div>
+                        <div class="ml-rule-row">
+                          <label class="checkbox-label">
+                            <input type="checkbox" id="bot1MLBlockLowProb2x" checked>
+                            <span>Prob 2x &lt;</span>
+                          </label>
+                          <input type="number" id="bot1MLBlockLowProb2xThreshold" value="40" min="0" max="100" step="5" class="threshold-input">
+                          <span class="threshold-suffix">%</span>
+                        </div>
+                      </div>
+
+                      <!-- Ajustes de Aposta -->
+                      <div class="ml-config-section">
+                        <h4 class="ml-section-title">Ajustes por Confianca</h4>
+                        <div class="config-row">
+                          <label class="checkbox-label">
+                            <input type="checkbox" id="bot1MLAdjustBetSize" checked>
+                            <span>Ajustar valor da aposta</span>
+                          </label>
+                        </div>
+                        <div class="ml-confidence-grid" id="bot1MLConfidenceGrid">
+                          <div class="confidence-item">
+                            <span class="confidence-label high">Alta (&gt;60%)</span>
+                            <span class="confidence-effect">+20%</span>
+                          </div>
+                          <div class="confidence-item">
+                            <span class="confidence-label medium">Media (50-60%)</span>
+                            <span class="confidence-effect">Normal</span>
+                          </div>
+                          <div class="confidence-item">
+                            <span class="confidence-label low">Baixa (40-50%)</span>
+                            <span class="confidence-effect">-30%</span>
+                          </div>
+                          <div class="confidence-item">
+                            <span class="confidence-label verylow">Muito Baixa (&lt;40%)</span>
+                            <span class="confidence-effect">-50%</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <!-- Override de Sequencias -->
+                      <div class="ml-config-section">
+                        <h4 class="ml-section-title">Override de Sequencias</h4>
+                        <div class="ml-rule-row">
+                          <label class="checkbox-label">
+                            <input type="checkbox" id="bot1MLOverrideSequences">
+                            <span>Ignorar sequencias se prob 2x &gt;</span>
+                          </label>
+                          <input type="number" id="bot1MLOverrideThreshold" value="65" min="50" max="100" step="5" class="threshold-input">
+                          <span class="threshold-suffix">%</span>
+                        </div>
+                        <small class="config-hint">Aposta mesmo sem sequencias favoraveis se ML estiver confiante</small>
+                      </div>
+                    </div>
+                  </div>
+
                   <div class="bot-config-summary">
                     <div class="config-summary-row">
                       <span>Total por rodada:</span>
@@ -785,6 +973,18 @@
                   <div class="sim-stat">
                     <span class="sim-stat-label">ROI</span>
                     <span class="sim-stat-value" id="bot2ROI">0%</span>
+                  </div>
+                  <div class="sim-stat">
+                    <span class="sim-stat-label">Min. Banca</span>
+                    <span class="sim-stat-value" id="bot2MinBalance">R$ 100,00</span>
+                  </div>
+                  <div class="sim-stat">
+                    <span class="sim-stat-label">Max. Banca</span>
+                    <span class="sim-stat-value" id="bot2MaxBalance">R$ 100,00</span>
+                  </div>
+                  <div class="sim-stat">
+                    <span class="sim-stat-label">Inicial</span>
+                    <span class="sim-stat-value" id="bot2InitialBalance">R$ 100,00</span>
                   </div>
                 </div>
               </div>
@@ -920,6 +1120,113 @@
                           <label>Agressivo</label>
                           <input type="number" id="bot2CashoutAggressive" value="2.20" min="1.01" max="10" step="0.01">
                         </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Configuracoes ML -->
+                  <div class="config-group ml-config-group">
+                    <div class="config-group-header">
+                      <label class="toggle-switch small">
+                        <input type="checkbox" id="bot2MLEnabled">
+                        <span class="toggle-slider"></span>
+                      </label>
+                      <span class="config-group-title">
+                        <span class="ml-badge">ML</span>
+                        Integracao Machine Learning
+                      </span>
+                    </div>
+                    <div class="config-group-body ml-config-body" id="bot2MLConfigBody">
+                      <!-- Modo e Requisitos -->
+                      <div class="ml-config-section">
+                        <div class="config-row">
+                          <div class="config-col">
+                            <label>Modo</label>
+                            <select id="bot2MLMode">
+                              <option value="enhance">Complementar</option>
+                              <option value="override">Substituto</option>
+                            </select>
+                          </div>
+                          <div class="config-col">
+                            <label class="checkbox-label">
+                              <input type="checkbox" id="bot2MLRequire">
+                              <span>Exigir ML</span>
+                            </label>
+                            <small class="config-hint">Nao aposta sem ML</small>
+                          </div>
+                        </div>
+                      </div>
+
+                      <!-- Regras de Bloqueio -->
+                      <div class="ml-config-section">
+                        <h4 class="ml-section-title">Regras de Bloqueio</h4>
+                        <div class="ml-rule-row">
+                          <label class="checkbox-label">
+                            <input type="checkbox" id="bot2MLBlockEarlyCrash" checked>
+                            <span>Crash Precoce &gt;</span>
+                          </label>
+                          <input type="number" id="bot2MLBlockEarlyCrashThreshold" value="35" min="0" max="100" step="5" class="threshold-input">
+                          <span class="threshold-suffix">%</span>
+                        </div>
+                        <div class="ml-rule-row">
+                          <label class="checkbox-label">
+                            <input type="checkbox" id="bot2MLBlockLossStreak" checked>
+                            <span>Sequencia Ruim &gt;</span>
+                          </label>
+                          <input type="number" id="bot2MLBlockLossStreakThreshold" value="50" min="0" max="100" step="5" class="threshold-input">
+                          <span class="threshold-suffix">%</span>
+                        </div>
+                        <div class="ml-rule-row">
+                          <label class="checkbox-label">
+                            <input type="checkbox" id="bot2MLBlockLowProb2x" checked>
+                            <span>Prob 2x &lt;</span>
+                          </label>
+                          <input type="number" id="bot2MLBlockLowProb2xThreshold" value="40" min="0" max="100" step="5" class="threshold-input">
+                          <span class="threshold-suffix">%</span>
+                        </div>
+                      </div>
+
+                      <!-- Ajustes de Aposta -->
+                      <div class="ml-config-section">
+                        <h4 class="ml-section-title">Ajustes por Confianca</h4>
+                        <div class="config-row">
+                          <label class="checkbox-label">
+                            <input type="checkbox" id="bot2MLAdjustBetSize" checked>
+                            <span>Ajustar valor da aposta</span>
+                          </label>
+                        </div>
+                        <div class="ml-confidence-grid" id="bot2MLConfidenceGrid">
+                          <div class="confidence-item">
+                            <span class="confidence-label high">Alta (&gt;60%)</span>
+                            <span class="confidence-effect">+20%</span>
+                          </div>
+                          <div class="confidence-item">
+                            <span class="confidence-label medium">Media (50-60%)</span>
+                            <span class="confidence-effect">Normal</span>
+                          </div>
+                          <div class="confidence-item">
+                            <span class="confidence-label low">Baixa (40-50%)</span>
+                            <span class="confidence-effect">-30%</span>
+                          </div>
+                          <div class="confidence-item">
+                            <span class="confidence-label verylow">Muito Baixa (&lt;40%)</span>
+                            <span class="confidence-effect">-50%</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <!-- Override de Sequencias -->
+                      <div class="ml-config-section">
+                        <h4 class="ml-section-title">Override de Sequencias</h4>
+                        <div class="ml-rule-row">
+                          <label class="checkbox-label">
+                            <input type="checkbox" id="bot2MLOverrideSequences">
+                            <span>Ignorar sequencias se prob 2x &gt;</span>
+                          </label>
+                          <input type="number" id="bot2MLOverrideThreshold" value="65" min="50" max="100" step="5" class="threshold-input">
+                          <span class="threshold-suffix">%</span>
+                        </div>
+                        <small class="config-hint">Aposta mesmo sem sequencias favoraveis se ML estiver confiante</small>
                       </div>
                     </div>
                   </div>

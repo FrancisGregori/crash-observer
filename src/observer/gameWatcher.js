@@ -251,6 +251,69 @@ export async function startGameWatcher() {
   console.log('[GameWatcher] Iniciando monitoramento por polling...');
   console.log('[GameWatcher] Monitorando rodadas... (Ctrl+C para parar)');
 
+  // Estado para controle de verificação de erro de autorização
+  let lastAuthCheck = 0;
+  let isHandlingAuthError = false;
+  const AUTH_CHECK_THROTTLE = 10000; // Throttle mínimo de 10 segundos entre verificações no polling
+
+  /**
+   * Verifica e trata erro de autorização
+   * @param {string} source - Origem da chamada (para log)
+   * @returns {boolean} - true se houve erro e foi tratado
+   */
+  async function checkAndHandleAuthError(source = 'interval') {
+    if (isHandlingAuthError) return false;
+
+    try {
+      const hasAuthError = await page.evaluate(() => {
+        const errorPopup = document.querySelector('.ui-popup--status-error');
+        if (errorPopup) {
+          const text = errorPopup.textContent || '';
+          return text.includes('Ocorreu um erro de autorização');
+        }
+        return false;
+      });
+
+      if (hasAuthError) {
+        isHandlingAuthError = true;
+        console.log(`[GameWatcher] ⚠️ Erro de autorização detectado (${source})! Recarregando página...`);
+
+        await page.reload({ waitUntil: 'domcontentloaded', timeout: 60000 });
+        console.log('[GameWatcher] ✅ Página recarregada com sucesso');
+
+        // Aguarda um pouco para a página estabilizar
+        await page.waitForTimeout(5000);
+
+        // Procura o iframe novamente
+        gameFrame = await findGameFrame(page);
+        if (gameFrame) {
+          liveBetting.setGameFrame(gameFrame);
+          console.log('[GameWatcher] ✅ Iframe do jogo reencontrado após reload');
+        } else {
+          console.log('[GameWatcher] ⚠️ Iframe não encontrado após reload, aguardando próximo ciclo...');
+        }
+
+        isHandlingAuthError = false;
+        return true;
+      }
+    } catch (err) {
+      isHandlingAuthError = false;
+      if (!err.message.includes('Target closed')) {
+        console.error(`[GameWatcher] Erro ao verificar popup de autorização (${source}):`, err.message);
+      }
+    }
+
+    return false;
+  }
+
+  // Verificação periódica de erro de autorização (a cada 30 segundos)
+  const AUTH_ERROR_CHECK_INTERVAL = 30 * 1000; // 30 segundos
+  const authErrorCheckInterval = setInterval(() => {
+    checkAndHandleAuthError('interval-30s');
+  }, AUTH_ERROR_CHECK_INTERVAL);
+
+  console.log('[GameWatcher] Verificação de erro de autorização ativa (a cada 30s + cada rodada)');
+
   let wasRunning = false;
   let lastMultiplier = 0;
   let lastHistory = [];
@@ -300,10 +363,20 @@ export async function startGameWatcher() {
   }
 
   const pollInterval = setInterval(async () => {
+    // Skip se estiver tratando erro de autorização
+    if (isHandlingAuthError) return;
+
     try {
       gameFrame = await findGameFrame(page);
       if (!gameFrame) {
         console.log('[GameWatcher] Iframe perdido, procurando novamente...');
+
+        // Quando iframe é perdido, verifica se há erro de autorização (pode ser a causa)
+        const now = Date.now();
+        if (now - lastAuthCheck > AUTH_CHECK_THROTTLE) {
+          lastAuthCheck = now;
+          await checkAndHandleAuthError('iframe-lost');
+        }
         return;
       }
 
@@ -389,6 +462,13 @@ export async function startGameWatcher() {
       if (!wasRunning && isRunning) {
         console.log('[GameWatcher] 🚀 Nova rodada iniciada!');
         currentGameState.isRunning = true;
+
+        // Verifica erro de autorização no início de cada rodada (throttled)
+        const now = Date.now();
+        if (now - lastAuthCheck > AUTH_CHECK_THROTTLE) {
+          lastAuthCheck = now;
+          checkAndHandleAuthError('round-start');
+        }
         currentGameState.isBettingPhase = false;
       }
 
@@ -436,6 +516,7 @@ export async function startGameWatcher() {
     page,
     cleanup: () => {
       clearInterval(pollInterval);
+      clearInterval(authErrorCheckInterval);
     }
   };
 }
