@@ -28,3 +28,4 @@ Thumbs.db
 
 #DATA
 data/
+ml_service/venv/
