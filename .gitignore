@@ -3,6 +3,7 @@ node_modules/
 
 # Data
 data/browser-session/
+data/browser-session-*/
 data/*.db
 data/*.db-wal
 data/*.db-shm

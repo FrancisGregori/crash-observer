@@ -1,0 +1,119 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-text-primary;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    @apply w-2 h-2;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-bg-secondary rounded;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-accent/30 rounded hover:bg-accent/50;
+  }
+}
+
+@layer components {
+  /* Card base styles */
+  .card {
+    @apply bg-bg-card rounded-lg border border-white/10 p-4;
+  }
+
+  /* Stat card */
+  .stat-card {
+    @apply card flex flex-col gap-1;
+  }
+
+  .stat-label {
+    @apply text-xs text-text-secondary uppercase tracking-wider;
+  }
+
+  .stat-value {
+    @apply text-xl font-bold font-mono;
+  }
+
+  /* Input styles */
+  input[type="text"],
+  input[type="number"],
+  input[type="email"],
+  input[type="password"],
+  select,
+  textarea {
+    @apply bg-black/50 border border-white/20 rounded px-3 py-2 text-white;
+    @apply focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent;
+  }
+
+  input[type="number"] {
+    @apply font-mono;
+  }
+
+  /* Small inputs */
+  .input-sm {
+    @apply px-2 py-1 text-sm;
+  }
+
+  /* Multiplier colors */
+  .mult-low { @apply text-mult-low; }
+  .mult-medium { @apply text-mult-medium; }
+  .mult-good { @apply text-mult-good; }
+  .mult-great { @apply text-mult-great; }
+  .mult-excellent { @apply text-mult-excellent; }
+  .mult-epic { @apply text-mult-epic; }
+  .mult-legendary { @apply text-mult-legendary; }
+
+  /* Status classes */
+  .positive { @apply text-green; }
+  .negative { @apply text-red; }
+  .warning { @apply text-yellow; }
+
+  /* Grid rounds */
+  .round-circle {
+    @apply w-12 h-12 rounded-full flex items-center justify-center text-xs font-bold font-mono;
+  }
+
+  /* Progress bar */
+  .progress-bar {
+    @apply h-2 rounded-full bg-bg-secondary overflow-hidden;
+  }
+
+  .progress-fill {
+    @apply h-full rounded-full transition-all duration-300;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  /* Glassmorphism effect */
+  .glass {
+    @apply bg-white/5 backdrop-blur-lg border border-white/10;
+  }
+
+  /* Glow effects */
+  .glow-green {
+    box-shadow: 0 0 20px rgba(34, 197, 94, 0.3);
+  }
+
+  .glow-red {
+    box-shadow: 0 0 20px rgba(239, 68, 68, 0.3);
+  }
+
+  .glow-accent {
+    box-shadow: 0 0 20px rgba(99, 102, 241, 0.3);
+  }
+}

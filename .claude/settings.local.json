@@ -24,7 +24,10 @@
       "Bash(redis-cli ping:*)",
       "Bash(docker run:*)",
       "Bash(docker exec:*)",
-      "Bash(npm install:*)"
+      "Bash(npm install:*)",
+      "WebFetch(domain:www.solid-ui.com)",
+      "Bash(npx tsc:*)",
+      "Bash(grep:*)"
     ]
   }
 }
