@@ -1,4 +1,4 @@
-import { Component, Show } from 'solid-js';
+import { Component, Show, createSignal } from 'solid-js';
 import {
   botsStore,
   setBotActive,
@@ -13,10 +13,14 @@ interface BotStatusBarProps {
 }
 
 export const BotStatusBar: Component<BotStatusBarProps> = (props) => {
+  const [isLoading, setIsLoading] = createSignal(false);
+  const [error, setError] = createSignal<string | null>(null);
+
   const botState = () => botsStore[props.botId].state;
   const riskState = () => botsStore[props.botId].riskState;
 
   const getStatusText = () => {
+    if (isLoading()) return 'Iniciando...';
     if (!botState().active) return 'Inativo';
     if (riskState().stopLossTriggered) return 'Stop Loss';
     if (riskState().takeProfitTriggered) return 'Take Profit';
@@ -26,6 +30,7 @@ export const BotStatusBar: Component<BotStatusBarProps> = (props) => {
   };
 
   const getStatusColor = () => {
+    if (isLoading()) return 'text-cyan';
     if (!botState().active) return 'text-text-muted';
     if (riskState().stopLossTriggered) return 'text-red';
     if (riskState().takeProfitTriggered) return 'text-green';
@@ -34,8 +39,24 @@ export const BotStatusBar: Component<BotStatusBarProps> = (props) => {
     return 'text-yellow';
   };
 
-  const handleToggleActive = () => {
-    setBotActive(props.botId, !botState().active);
+  const handleToggleActive = async () => {
+    setError(null);
+    setIsLoading(true);
+
+    try {
+      const result = await setBotActive(props.botId, !botState().active);
+      if (result !== true) {
+        // result can be false or an error message string
+        const errorMsg = typeof result === 'string' ? result : 'Falha ao ativar modo live. Verifique o console para mais detalhes.';
+        setError(errorMsg);
+      }
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      setError(`Erro: ${errorMsg}`);
+      console.error('[BotStatusBar] Error:', err);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleToggleLive = () => {
@@ -115,13 +136,15 @@ export const BotStatusBar: Component<BotStatusBarProps> = (props) => {
           <button
             class={cn(
               'px-4 py-1.5 text-xs rounded font-bold transition-colors',
+              isLoading() && 'opacity-50 cursor-wait',
               botState().active
                 ? 'bg-red text-white hover:bg-red/80'
                 : 'bg-green text-bg-primary hover:bg-green/80'
             )}
             onClick={handleToggleActive}
+            disabled={isLoading()}
           >
-            {botState().active ? 'PARAR' : 'INICIAR'}
+            {isLoading() ? '...' : botState().active ? 'PARAR' : 'INICIAR'}
           </button>
 
           {/* Reset */}
@@ -129,11 +152,19 @@ export const BotStatusBar: Component<BotStatusBarProps> = (props) => {
             class="px-2 py-1.5 text-sm text-text-muted hover:text-red transition-colors"
             onClick={handleReset}
             title="Resetar bot"
+            disabled={isLoading()}
           >
             ↺
           </button>
         </div>
       </div>
+
+      {/* Error Message */}
+      <Show when={error()}>
+        <div class="p-2 bg-red/20 border border-red/30 rounded text-xs text-red text-center">
+          {error()}
+        </div>
+      </Show>
     </div>
   );
 };

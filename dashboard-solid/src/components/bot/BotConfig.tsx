@@ -3,6 +3,7 @@ import { botsStore, setBotConfig, setBotBetAmount } from '../../stores/bots';
 import { cn } from '../../lib/utils';
 import type { BotId } from '../../types';
 import { StrategyConfig } from './StrategyConfig';
+import { ConfigManager } from './ConfigManager';
 
 interface BotConfigProps {
   botId: BotId;
@@ -135,6 +136,48 @@ export const BotConfig: Component<BotConfigProps> = (props) => {
                   step="0.1"
                   disabled={botState().active}
                 />
+              </div>
+
+              {/* Min/Max Bet Amount */}
+              <div class="grid grid-cols-2 gap-3">
+                <div>
+                  <label class="block text-xs text-text-muted mb-1">
+                    Aposta Mínima
+                  </label>
+                  <input
+                    type="number"
+                    value={config().minBetAmount}
+                    onInput={(e) => {
+                      const val = parseFloat(e.currentTarget.value);
+                      if (!isNaN(val) && val > 0) {
+                        setBotConfig(props.botId, { minBetAmount: val });
+                      }
+                    }}
+                    class="w-full bg-bg-tertiary text-white font-mono px-3 py-2 rounded border border-border focus:border-cyan focus:outline-none disabled:opacity-50"
+                    min="0.1"
+                    step="0.1"
+                    disabled={botState().active}
+                  />
+                </div>
+                <div>
+                  <label class="block text-xs text-text-muted mb-1">
+                    Aposta Máxima
+                  </label>
+                  <input
+                    type="number"
+                    value={config().maxBetAmount}
+                    onInput={(e) => {
+                      const val = parseFloat(e.currentTarget.value);
+                      if (!isNaN(val) && val > 0) {
+                        setBotConfig(props.botId, { maxBetAmount: val });
+                      }
+                    }}
+                    class="w-full bg-bg-tertiary text-white font-mono px-3 py-2 rounded border border-border focus:border-cyan focus:outline-none disabled:opacity-50"
+                    min="1"
+                    step="1"
+                    disabled={botState().active}
+                  />
+                </div>
               </div>
 
               {/* Bankroll Management */}
@@ -344,6 +387,9 @@ export const BotConfig: Component<BotConfigProps> = (props) => {
               </div>
             </div>
           </Show>
+
+          {/* Config Manager - Save/Load & History */}
+          <ConfigManager botId={props.botId} />
         </div>
       </Show>
     </div>

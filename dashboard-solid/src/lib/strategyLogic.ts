@@ -13,6 +13,7 @@ import type {
   MLStrategyConfig,
   RulesStrategyConfig,
   HybridConfig,
+  BreakevenProfitConfig,
   StrategyDecisionResult,
 } from '../types';
 import { calculateStreak, checkFavorability, calculateMomentum } from './analysis';
@@ -327,6 +328,121 @@ export function combineDecisions(
   };
 }
 
+// ====== Break-even + Profit Strategy Decision ======
+// First bet at ~2x to cover both bets (break even)
+// Second bet aims for higher ML target (3x, 5x, 7x, 10x, 15x, etc.)
+export function makeBreakevenProfitDecision(
+  mlPrediction: MLPrediction | null | undefined,
+  config: BreakevenProfitConfig,
+  baseBetAmount: number
+): {
+  shouldBet: boolean;
+  confidence: number;
+  betMultiplier: number;
+  breakevenCashout: number; // Cashout for first bet (break-even)
+  profitCashout: number;    // Cashout for second bet (profit)
+  reasons: string[];
+} {
+  const reasons: string[] = [];
+
+  // No ML prediction available
+  if (!mlPrediction) {
+    return {
+      shouldBet: false,
+      confidence: 0,
+      betMultiplier: 1,
+      breakevenCashout: config.breakeven.targetMultiplier,
+      profitCashout: config.profit.defaultTarget,
+      reasons: ['Break-even+Profit: Sem predição ML disponível'],
+    };
+  }
+
+  const confidence = mlPrediction.prob_gt_2x;
+  let shouldBet = true;
+  let betMultiplier = 1;
+  let profitCashout = config.profit.defaultTarget;
+  const breakevenCashout = config.breakeven.targetMultiplier;
+
+  // Check minimum confidence
+  if (confidence < config.profit.minMLConfidence) {
+    shouldBet = false;
+    reasons.push(`BE+P: Confiança baixa (${(confidence * 100).toFixed(0)}% < ${(config.profit.minMLConfidence * 100).toFixed(0)}%)`);
+  } else {
+    reasons.push(`BE+P: Confiança ${(confidence * 100).toFixed(0)}%`);
+  }
+
+  // Check skip conditions
+  if (mlPrediction.prob_early_crash > config.skipConditions.maxEarlyCrashProb) {
+    shouldBet = false;
+    reasons.push(`BE+P: Risco de crash precoce (${(mlPrediction.prob_early_crash * 100).toFixed(0)}%)`);
+  }
+
+  if (mlPrediction.prob_high_loss_streak > config.skipConditions.maxLossStreakProb) {
+    shouldBet = false;
+    reasons.push(`BE+P: Risco de sequência de perdas (${(mlPrediction.prob_high_loss_streak * 100).toFixed(0)}%)`);
+  }
+
+  // Determine profit target based on ML probabilities
+  if (config.profit.useMLTarget) {
+    const thresholds = config.profit.targetThresholds;
+
+    // Check from highest to lowest target
+    // We need to estimate probabilities for 7x, 15x, 20x based on available data
+    // prob_gt_10x can be used as a proxy - if high, higher targets are more likely
+    const estimatedProb15x = mlPrediction.prob_gt_10x * 0.6; // Approximate
+    const estimatedProb20x = mlPrediction.prob_gt_10x * 0.4; // Approximate
+    const estimatedProb7x = (mlPrediction.prob_gt_5x + mlPrediction.prob_gt_10x) / 2;
+
+    if (estimatedProb20x >= thresholds.target20x) {
+      profitCashout = 20;
+      reasons.push(`BE+P: Target lucro 20x (prob estimada ${(estimatedProb20x * 100).toFixed(0)}%)`);
+    } else if (estimatedProb15x >= thresholds.target15x) {
+      profitCashout = 15;
+      reasons.push(`BE+P: Target lucro 15x (prob estimada ${(estimatedProb15x * 100).toFixed(0)}%)`);
+    } else if (mlPrediction.prob_gt_10x >= thresholds.target10x) {
+      profitCashout = 10;
+      reasons.push(`BE+P: Target lucro 10x (prob ${(mlPrediction.prob_gt_10x * 100).toFixed(0)}%)`);
+    } else if (estimatedProb7x >= thresholds.target7x) {
+      profitCashout = 7;
+      reasons.push(`BE+P: Target lucro 7x (prob estimada ${(estimatedProb7x * 100).toFixed(0)}%)`);
+    } else if (mlPrediction.prob_gt_5x >= thresholds.target5x) {
+      profitCashout = 5;
+      reasons.push(`BE+P: Target lucro 5x (prob ${(mlPrediction.prob_gt_5x * 100).toFixed(0)}%)`);
+    } else if (mlPrediction.prob_gt_3x >= thresholds.target3x) {
+      profitCashout = 3;
+      reasons.push(`BE+P: Target lucro 3x (prob ${(mlPrediction.prob_gt_3x * 100).toFixed(0)}%)`);
+    } else {
+      profitCashout = config.profit.defaultTarget;
+      reasons.push(`BE+P: Target lucro padrão ${profitCashout}x`);
+    }
+  }
+
+  // Adjust bet multiplier based on confidence
+  if (confidence >= 0.60) {
+    betMultiplier = 1.3;
+    reasons.push('BE+P: Aposta aumentada (alta confiança)');
+  } else if (confidence >= 0.50) {
+    betMultiplier = 1.0;
+  } else {
+    betMultiplier = 0.7;
+    reasons.push('BE+P: Aposta reduzida (confiança moderada)');
+  }
+
+  // Add strategy explanation
+  if (shouldBet) {
+    reasons.push(`BE+P: Aposta 1 sai em ${breakevenCashout}x (break-even), Aposta 2 mira ${profitCashout}x`);
+  }
+
+  return {
+    shouldBet,
+    confidence,
+    betMultiplier,
+    breakevenCashout,
+    profitCashout,
+    reasons,
+  };
+}
+
 // ====== Main Strategy Decision Function ======
 export function makeStrategyDecision(
   rounds: RoundData[],
@@ -417,6 +533,31 @@ export function makeStrategyDecision(
         isHighOpportunity: rulesResult.isHighOpportunity,
         suggestedTarget: rulesResult.suggestedTarget,
         reasons: rulesResult.reasons,
+      },
+    };
+  }
+
+  // ====== Break-even + Profit Mode ======
+  if (mode === 'breakeven_profit') {
+    const bepResult = makeBreakevenProfitDecision(
+      mlPrediction,
+      strategyConfig.breakevenProfit,
+      config.betAmount
+    );
+
+    return {
+      shouldBet: bepResult.shouldBet,
+      confidence: bepResult.confidence,
+      betMultiplier: bepResult.betMultiplier,
+      targetCashout: bepResult.profitCashout, // Second bet target
+      breakevenCashout: bepResult.breakevenCashout, // First bet target
+      reasons: bepResult.reasons,
+      source: 'breakeven_profit',
+      mlDecision: {
+        shouldBet: bepResult.shouldBet,
+        confidence: bepResult.confidence,
+        suggestedTarget: bepResult.profitCashout,
+        reasons: bepResult.reasons,
       },
     };
   }

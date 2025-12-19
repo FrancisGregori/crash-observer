@@ -67,12 +67,15 @@ export interface BotState {
   isProcessing: boolean;
   lastRoundTime: number;
   adaptiveCycle: AdaptiveCycle;
+  sessionStartTime: number | null; // When bot was started
 }
 
 // Bot configuration
 export interface BotConfig {
   botId: BotId;
   betAmount: number;
+  minBetAmount: number;
+  maxBetAmount: number;
   bankrollManagement: {
     enabled: boolean;
     maxBetPercent: number;
@@ -93,6 +96,34 @@ export interface BotConfig {
   };
   mlConfig: MLConfig;
   strategy: StrategyConfig;
+}
+
+// Session history record - saved when bot is reset or stopped
+export interface BotSessionRecord {
+  id: string;
+  botId: BotId;
+  startTime: number;
+  endTime: number;
+  durationMs: number;
+  initialBalance: number;
+  finalBalance: number;
+  minBalance: number;
+  maxBalance: number;
+  totalRounds: number;
+  totalWins: number;
+  totalLosses: number;
+  winRate: number;
+  totalProfit: number;
+  config: BotConfig;
+}
+
+// Saved configuration preset
+export interface SavedBotConfig {
+  id: string;
+  name: string;
+  description?: string;
+  createdAt: number;
+  config: BotConfig;
 }
 
 // Risk state for bot
@@ -171,6 +202,7 @@ export function createDefaultBotState(botId: BotId): BotState {
       totalCycleAttempts: 0,
       lastHitTarget: null,
     },
+    sessionStartTime: null,
   };
 }
 
@@ -179,6 +211,8 @@ export function createDefaultBotConfig(botId: BotId): BotConfig {
   return {
     botId,
     betAmount: 2,
+    minBetAmount: 0.5,
+    maxBetAmount: 50,
     bankrollManagement: {
       enabled: true,
       maxBetPercent: 5,

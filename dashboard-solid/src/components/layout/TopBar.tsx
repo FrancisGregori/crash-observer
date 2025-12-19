@@ -15,15 +15,15 @@ export const TopBar: Component = () => {
           <ConnectionStatus />
         </div>
 
-        {/* Rounds Grid */}
-        <div class="flex-1 overflow-hidden">
-          <RoundsGrid />
-        </div>
-
         {/* Settings */}
         <div class="shrink-0">
           <SettingsPanel />
         </div>
+      </div>
+
+      {/* Rounds Grid */}
+      <div class="flex-1 mt-2 bg-black/60 overflow-hidden">
+        <RoundsGrid />
       </div>
     </header>
   );

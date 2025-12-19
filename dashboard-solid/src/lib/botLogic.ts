@@ -74,13 +74,25 @@ export function makeBotDecision(
     };
   }
 
-  // Calculate cashout 1 based on momentum
-  const momentum = calculateMomentum(rounds);
-  const cashout1Info = calculateCashout1(
-    config,
-    riskState,
-    momentum.status
-  );
+  // Determine cashout1 based on strategy mode
+  let cashout1Info: { cashout: number; base: number; reasons: string[] };
+
+  if (strategyResult.source === 'breakeven_profit' && strategyResult.breakevenCashout) {
+    // For breakeven_profit mode, use the breakeven cashout directly
+    cashout1Info = {
+      cashout: strategyResult.breakevenCashout,
+      base: strategyResult.breakevenCashout,
+      reasons: [`Break-even: ${strategyResult.breakevenCashout}x`],
+    };
+  } else {
+    // Calculate cashout 1 based on momentum for other modes
+    const momentum = calculateMomentum(rounds);
+    cashout1Info = calculateCashout1(
+      config,
+      riskState,
+      momentum.status
+    );
+  }
 
   // Final balance check
   const totalBetAmount = betSizeInfo.amount * 2;
@@ -174,11 +186,19 @@ export function calculateBetSize(
     reasons.push('Aumentado: alta oportunidade');
   }
 
-  // Minimum bet check
-  const minBet = 0.1;
+  // Apply min/max bet limits from config
+  const minBet = config.minBetAmount || 0.1;
+  const maxBet = config.maxBetAmount || 1000;
+
   if (amount < minBet) {
     amount = minBet;
-    reasons.push('Ajustado para aposta mínima');
+    reasons.push(`Ajustado para aposta mínima (${minBet})`);
+  }
+
+  if (amount > maxBet) {
+    amount = maxBet;
+    isReduced = true;
+    reasons.push(`Limitado ao máximo (${maxBet})`);
   }
 
   // Round to 2 decimals

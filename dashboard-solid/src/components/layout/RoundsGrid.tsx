@@ -20,7 +20,7 @@ export const RoundsGrid: Component = () => {
   const recentRounds = createMemo(() => roundsStore.rounds.slice(0, 50));
 
   return (
-    <div class="flex gap-1.5 overflow-x-auto py-1 pl-2 scrollbar-thin scrollbar-thumb-accent/30 scrollbar-track-transparent">
+    <div class="flex gap-1.5 py-4 pl-2 scrollbar-hidden overflow-x-auto">
       <For each={recentRounds()}>
         {(round, index) => {
           const color = getMultiplierColor(round.multiplier);
@@ -29,10 +29,10 @@ export const RoundsGrid: Component = () => {
           return (
             <div
               class={cn(
-                'shrink-0 px-2.5 py-1.5 rounded-md flex items-center justify-center',
+                'shrink-0 px-4 py-1.5 rounded-full flex items-center justify-center',
                 'text-xs font-bold font-mono border transition-all',
                 colorClasses[color],
-                isNewest && 'ring-2 ring-white/50 ring-offset-1 ring-offset-background scale-110'
+                  'text-white'
               )}
               title={`Rodada #${round.id} - ${formatMultiplier(round.multiplier)}`}
             >

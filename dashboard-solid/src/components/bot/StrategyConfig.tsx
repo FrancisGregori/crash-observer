@@ -1,7 +1,8 @@
-import { Component, Show, For, createSignal } from 'solid-js';
+import { Component, Show, For, createSignal, createEffect, on } from 'solid-js';
 import { botsStore, setBotConfig } from '../../stores/bots';
 import { cn } from '../../lib/utils';
 import type { BotId, StrategyMode, StrategyConfig as StrategyConfigType } from '../../types';
+import { createDefaultBreakevenProfitConfig, type BreakevenProfitConfig } from '../../types/strategy';
 
 interface StrategyConfigProps {
   botId: BotId;
@@ -13,6 +14,30 @@ export const StrategyConfig: Component<StrategyConfigProps> = (props) => {
   const config = () => botsStore[props.botId].config;
   const strategy = () => config().strategy;
   const botState = () => botsStore[props.botId].state;
+
+  // Ensure breakevenProfit config exists (for migrations from older versions)
+  const breakevenProfit = (): BreakevenProfitConfig => {
+    return strategy().breakevenProfit || createDefaultBreakevenProfitConfig();
+  };
+
+  // Auto-expand section ONLY when mode changes (not on other config changes)
+  createEffect(
+    on(
+      () => strategy().mode,
+      (mode) => {
+        if (mode === 'breakeven_profit') {
+          setExpandedSection('breakeven');
+        } else if (mode === 'ml_only') {
+          setExpandedSection('ml');
+        } else if (mode === 'rules_only') {
+          setExpandedSection('rules');
+        } else if (mode === 'hybrid') {
+          setExpandedSection('ml');
+        }
+      },
+      { defer: false }
+    )
+  );
 
   const updateStrategy = (updates: Partial<StrategyConfigType>) => {
     setBotConfig(props.botId, {
@@ -46,21 +71,28 @@ export const StrategyConfig: Component<StrategyConfigProps> = (props) => {
     { value: 'rules_only', label: 'Regras', desc: 'Sequências e padrões' },
     { value: 'ml_only', label: 'ML', desc: 'Apenas Machine Learning' },
     { value: 'hybrid', label: 'Híbrido', desc: 'ML + Regras combinados' },
+    { value: 'breakeven_profit', label: 'BE+Lucro', desc: 'Break-even + ML target' },
   ];
+
+  const updateBreakevenProfit = (updates: any) => {
+    updateStrategy({
+      breakevenProfit: { ...breakevenProfit(), ...updates },
+    });
+  };
 
   return (
     <div class="space-y-3">
       {/* Strategy Mode Selector */}
       <div class="p-3 bg-bg-tertiary rounded-lg">
         <div class="text-xs text-text-muted mb-2">Modo de Estratégia</div>
-        <div class="grid grid-cols-3 gap-1">
+        <div class="grid grid-cols-2 gap-1">
           <For each={modes}>
             {(mode) => (
               <button
                 class={cn(
                   'py-2 px-2 rounded text-xs font-medium transition-colors',
                   strategy().mode === mode.value
-                    ? 'bg-cyan text-bg-primary'
+                    ? mode.value === 'breakeven_profit' ? 'bg-purple text-white' : 'bg-cyan text-bg-primary'
                     : 'bg-bg-secondary text-text-secondary hover:bg-bg-secondary/80'
                 )}
                 onClick={() => updateStrategy({ mode: mode.value })}
@@ -772,6 +804,279 @@ export const StrategyConfig: Component<StrategyConfigProps> = (props) => {
                   />
                   Regras podem sobrescrever ML
                 </label>
+              </div>
+            </div>
+          </Show>
+        </div>
+      </Show>
+
+      {/* Break-even + Profit Strategy Config */}
+      <Show when={strategy().mode === 'breakeven_profit'}>
+        <div class="p-3 bg-bg-tertiary rounded-lg">
+          <button
+            class="w-full flex items-center justify-between"
+            onClick={() => toggleSection('breakeven')}
+            disabled={botState().active}
+          >
+            <span class="text-sm font-medium text-purple">Configuração BE + Lucro</span>
+            <span class="text-text-muted text-xs">
+              {expandedSection() === 'breakeven' ? '▲' : '▼'}
+            </span>
+          </button>
+
+          <Show when={expandedSection() === 'breakeven'}>
+            <div class="mt-3 space-y-4">
+              {/* Strategy Explanation */}
+              <div class="p-2 bg-purple/10 rounded text-xs text-purple border border-purple/30">
+                <strong>Como funciona:</strong> A primeira aposta sai em ~2x para cobrir ambas as apostas (break-even).
+                A segunda aposta mira targets mais altos baseados no ML (3x, 5x, 7x, 10x, etc).
+              </div>
+
+              {/* Break-even Settings */}
+              <div class="space-y-2">
+                <div class="text-xs text-text-muted font-medium">Aposta Break-even (1ª)</div>
+                <div class="grid grid-cols-2 gap-2">
+                  <div>
+                    <label class="block text-[10px] text-text-muted mb-1">Target Break-even</label>
+                    <input
+                      type="number"
+                      value={breakevenProfit().breakeven.targetMultiplier}
+                      onInput={(e) =>
+                        updateBreakevenProfit({
+                          breakeven: {
+                            ...breakevenProfit().breakeven,
+                            targetMultiplier: parseFloat(e.currentTarget.value) || 2,
+                          },
+                        })
+                      }
+                      class="w-full bg-bg-secondary text-white font-mono px-2 py-1 rounded border border-border text-sm text-center"
+                      min="1.5"
+                      max="3"
+                      step="0.1"
+                      disabled={botState().active}
+                    />
+                  </div>
+                  <div>
+                    <label class="block text-[10px] text-text-muted mb-1">Mínimo</label>
+                    <input
+                      type="number"
+                      value={breakevenProfit().breakeven.minMultiplier}
+                      onInput={(e) =>
+                        updateBreakevenProfit({
+                          breakeven: {
+                            ...breakevenProfit().breakeven,
+                            minMultiplier: parseFloat(e.currentTarget.value) || 1.5,
+                          },
+                        })
+                      }
+                      class="w-full bg-bg-secondary text-white font-mono px-2 py-1 rounded border border-border text-sm text-center"
+                      min="1.1"
+                      max="2"
+                      step="0.1"
+                      disabled={botState().active}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Profit Settings */}
+              <div class="space-y-2">
+                <div class="text-xs text-text-muted font-medium">Aposta Lucro (2ª)</div>
+
+                <div>
+                  <label class="block text-[10px] text-text-muted mb-1">Confiança Mínima ML</label>
+                  <div class="flex items-center gap-2">
+                    <input
+                      type="range"
+                      min="0.3"
+                      max="0.7"
+                      step="0.05"
+                      value={breakevenProfit().profit.minMLConfidence}
+                      onInput={(e) =>
+                        updateBreakevenProfit({
+                          profit: {
+                            ...breakevenProfit().profit,
+                            minMLConfidence: parseFloat(e.currentTarget.value),
+                          },
+                        })
+                      }
+                      class="flex-1"
+                      disabled={botState().active}
+                    />
+                    <span class="text-sm font-mono text-purple w-12 text-right">
+                      {(breakevenProfit().profit.minMLConfidence * 100).toFixed(0)}%
+                    </span>
+                  </div>
+                </div>
+
+                <div>
+                  <label class="block text-[10px] text-text-muted mb-1">Target Padrão (sem ML)</label>
+                  <input
+                    type="number"
+                    value={breakevenProfit().profit.defaultTarget}
+                    onInput={(e) =>
+                      updateBreakevenProfit({
+                        profit: {
+                          ...breakevenProfit().profit,
+                          defaultTarget: parseFloat(e.currentTarget.value) || 3,
+                        },
+                      })
+                    }
+                    class="w-full bg-bg-secondary text-white font-mono px-3 py-2 rounded border border-border text-sm"
+                    min="2"
+                    max="20"
+                    step="0.5"
+                    disabled={botState().active}
+                  />
+                </div>
+
+                <div class="flex items-center justify-between p-2 bg-bg-secondary rounded">
+                  <span class="text-xs text-text-secondary">Usar ML para Target</span>
+                  <button
+                    class={cn(
+                      'w-9 h-5 rounded-full transition-colors relative',
+                      breakevenProfit().profit.useMLTarget
+                        ? 'bg-purple'
+                        : 'bg-bg-tertiary'
+                    )}
+                    onClick={() =>
+                      updateBreakevenProfit({
+                        profit: {
+                          ...breakevenProfit().profit,
+                          useMLTarget: !breakevenProfit().profit.useMLTarget,
+                        },
+                      })
+                    }
+                    disabled={botState().active}
+                  >
+                    <span
+                      class={cn(
+                        'absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-all',
+                        breakevenProfit().profit.useMLTarget && 'left-4'
+                      )}
+                    />
+                  </button>
+                </div>
+              </div>
+
+              {/* Target Thresholds */}
+              <Show when={breakevenProfit().profit.useMLTarget}>
+                <div class="space-y-2">
+                  <div class="text-xs text-text-muted font-medium">Probabilidades Mínimas por Target</div>
+                  <div class="grid grid-cols-3 gap-2">
+                    <div>
+                      <label class="block text-[10px] text-text-muted mb-1">3x</label>
+                      <input
+                        type="number"
+                        value={(breakevenProfit().profit.targetThresholds.target3x * 100).toFixed(0)}
+                        onInput={(e) =>
+                          updateBreakevenProfit({
+                            profit: {
+                              ...breakevenProfit().profit,
+                              targetThresholds: {
+                                ...breakevenProfit().profit.targetThresholds,
+                                target3x: (parseFloat(e.currentTarget.value) || 50) / 100,
+                              },
+                            },
+                          })
+                        }
+                        class="w-full bg-bg-secondary text-white font-mono px-2 py-1 rounded border border-border text-xs text-center"
+                        min="10"
+                        max="80"
+                        disabled={botState().active}
+                      />
+                    </div>
+                    <div>
+                      <label class="block text-[10px] text-text-muted mb-1">5x</label>
+                      <input
+                        type="number"
+                        value={(breakevenProfit().profit.targetThresholds.target5x * 100).toFixed(0)}
+                        onInput={(e) =>
+                          updateBreakevenProfit({
+                            profit: {
+                              ...breakevenProfit().profit,
+                              targetThresholds: {
+                                ...breakevenProfit().profit.targetThresholds,
+                                target5x: (parseFloat(e.currentTarget.value) || 40) / 100,
+                              },
+                            },
+                          })
+                        }
+                        class="w-full bg-bg-secondary text-white font-mono px-2 py-1 rounded border border-border text-xs text-center"
+                        min="10"
+                        max="70"
+                        disabled={botState().active}
+                      />
+                    </div>
+                    <div>
+                      <label class="block text-[10px] text-text-muted mb-1">10x</label>
+                      <input
+                        type="number"
+                        value={(breakevenProfit().profit.targetThresholds.target10x * 100).toFixed(0)}
+                        onInput={(e) =>
+                          updateBreakevenProfit({
+                            profit: {
+                              ...breakevenProfit().profit,
+                              targetThresholds: {
+                                ...breakevenProfit().profit.targetThresholds,
+                                target10x: (parseFloat(e.currentTarget.value) || 25) / 100,
+                              },
+                            },
+                          })
+                        }
+                        class="w-full bg-bg-secondary text-white font-mono px-2 py-1 rounded border border-border text-xs text-center"
+                        min="5"
+                        max="50"
+                        disabled={botState().active}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </Show>
+
+              {/* Skip Conditions */}
+              <div class="space-y-2">
+                <div class="text-xs text-text-muted font-medium">Condições de Pular</div>
+                <div class="grid grid-cols-2 gap-2">
+                  <div>
+                    <label class="block text-[10px] text-text-muted mb-1">Máx Crash Precoce %</label>
+                    <input
+                      type="number"
+                      value={(breakevenProfit().skipConditions.maxEarlyCrashProb * 100).toFixed(0)}
+                      onInput={(e) =>
+                        updateBreakevenProfit({
+                          skipConditions: {
+                            ...breakevenProfit().skipConditions,
+                            maxEarlyCrashProb: (parseFloat(e.currentTarget.value) || 40) / 100,
+                          },
+                        })
+                      }
+                      class="w-full bg-bg-secondary text-white font-mono px-2 py-1 rounded border border-border text-sm text-center"
+                      min="20"
+                      max="70"
+                      disabled={botState().active}
+                    />
+                  </div>
+                  <div>
+                    <label class="block text-[10px] text-text-muted mb-1">Máx Seq Perdas %</label>
+                    <input
+                      type="number"
+                      value={(breakevenProfit().skipConditions.maxLossStreakProb * 100).toFixed(0)}
+                      onInput={(e) =>
+                        updateBreakevenProfit({
+                          skipConditions: {
+                            ...breakevenProfit().skipConditions,
+                            maxLossStreakProb: (parseFloat(e.currentTarget.value) || 55) / 100,
+                          },
+                        })
+                      }
+                      class="w-full bg-bg-secondary text-white font-mono px-2 py-1 rounded border border-border text-sm text-center"
+                      min="30"
+                      max="80"
+                      disabled={botState().active}
+                    />
+                  </div>
+                </div>
               </div>
             </div>
           </Show>

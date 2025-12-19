@@ -1,7 +1,7 @@
 // Bot Strategy Types
 // This file defines the configurable strategy system for bots
 
-export type StrategyMode = 'ml_only' | 'rules_only' | 'hybrid';
+export type StrategyMode = 'ml_only' | 'rules_only' | 'hybrid' | 'breakeven_profit';
 
 // Bet sizing methods
 export type BetSizingMethod = 'fixed' | 'confidence_based' | 'proportional';
@@ -127,12 +127,54 @@ export interface HybridConfig {
   rulesOverrideOnlyHighOpp: boolean;
 }
 
+// ====== Break-even + Profit Strategy Configuration ======
+// Strategy: First bet at ~2x to break even, second bet aims for ML target
+export interface BreakevenProfitConfig {
+  enabled: boolean;
+
+  // Breakeven bet configuration (first bet)
+  breakeven: {
+    // Target multiplier for breakeven (usually 2.0-2.1x to cover both bets)
+    targetMultiplier: number;
+    // Minimum multiplier (safety floor)
+    minMultiplier: number;
+  };
+
+  // Profit bet configuration (second bet) - follows ML targets
+  profit: {
+    // Use ML to determine profit target
+    useMLTarget: boolean;
+    // Minimum ML confidence to place bet
+    minMLConfidence: number;
+    // Default profit target when ML not available
+    defaultTarget: number;
+    // Available targets (ML will choose best one based on probabilities)
+    availableTargets: number[]; // e.g., [3, 5, 7, 10, 15, 20]
+    // Probability thresholds for each target
+    targetThresholds: {
+      target3x: number;   // Min probability to aim for 3x
+      target5x: number;   // Min probability to aim for 5x
+      target7x: number;   // Min probability to aim for 7x
+      target10x: number;  // Min probability to aim for 10x
+      target15x: number;  // Min probability to aim for 15x
+      target20x: number;  // Min probability to aim for 20x
+    };
+  };
+
+  // Risk conditions - when to skip
+  skipConditions: {
+    maxEarlyCrashProb: number; // Skip if early crash prob > this
+    maxLossStreakProb: number; // Skip if loss streak prob > this
+  };
+}
+
 // ====== Full Strategy Configuration ======
 export interface StrategyConfig {
   mode: StrategyMode;
   mlStrategy: MLStrategyConfig;
   rulesStrategy: RulesStrategyConfig;
   hybrid: HybridConfig;
+  breakevenProfit: BreakevenProfitConfig;
 }
 
 // ====== Default Configurations ======
@@ -225,12 +267,41 @@ export function createDefaultHybridConfig(): HybridConfig {
   };
 }
 
+export function createDefaultBreakevenProfitConfig(): BreakevenProfitConfig {
+  return {
+    enabled: true,
+    breakeven: {
+      targetMultiplier: 2.0, // Exit first bet at 2x to cover both bets
+      minMultiplier: 1.5,
+    },
+    profit: {
+      useMLTarget: true,
+      minMLConfidence: 0.45, // 45% minimum confidence
+      defaultTarget: 3.0, // Default when ML not available
+      availableTargets: [3, 5, 7, 10, 15, 20],
+      targetThresholds: {
+        target3x: 0.50,  // 50% prob to aim for 3x
+        target5x: 0.40,  // 40% prob to aim for 5x
+        target7x: 0.30,  // 30% prob to aim for 7x
+        target10x: 0.25, // 25% prob to aim for 10x
+        target15x: 0.18, // 18% prob to aim for 15x
+        target20x: 0.12, // 12% prob to aim for 20x
+      },
+    },
+    skipConditions: {
+      maxEarlyCrashProb: 0.40, // Skip if early crash > 40%
+      maxLossStreakProb: 0.55, // Skip if loss streak > 55%
+    },
+  };
+}
+
 export function createDefaultStrategyConfig(): StrategyConfig {
   return {
     mode: 'rules_only', // Start with rules only as default
     mlStrategy: createDefaultMLStrategyConfig(),
     rulesStrategy: createDefaultRulesStrategyConfig(),
     hybrid: createDefaultHybridConfig(),
+    breakevenProfit: createDefaultBreakevenProfitConfig(),
   };
 }
 
@@ -240,6 +311,7 @@ export interface StrategyDecisionResult {
   confidence: number; // 0-1
   betMultiplier: number; // Multiplier for base bet
   targetCashout: number;
+  breakevenCashout?: number; // For breakeven_profit mode
   reasons: string[];
   source: StrategyMode;
 
