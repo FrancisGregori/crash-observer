@@ -479,15 +479,6 @@ export async function startGameWatcher() {
         return true;
       }
 
-      // Log de debug quando houver popups visíveis
-      if (mainPageResult.visiblePopups?.length > 0) {
-        console.log(`[GameWatcher] Debug (${source}) - ${mainPageResult.visiblePopups.length} popup(s) visível(is) na página principal`);
-        mainPageResult.visiblePopups.forEach((p, i) => {
-          console.log(`  [${i}] class: ${p.class}`);
-          console.log(`  [${i}] text: ${p.text}`);
-        });
-      }
-
       // Verifica também no iframe se existir
       if (gameFrame) {
         try {
@@ -578,6 +569,18 @@ export async function startGameWatcher() {
   let wasCountdownVisible = false;
   let lastSavedHistoryFirst = null;
   let pendingRoundData = null;
+
+  // Track the multiplier while game is running (for 1x crash detection)
+  let runningMultiplier = 0;
+  let maxRunningMultiplier = 0;
+
+  // Track countdown state for 1x crash detection
+  // Logic: if countdown hides (game starts) and reappears quickly without us seeing a multiplier,
+  // it means the game crashed at 1x instantly
+  let countdownHiddenTime = 0;        // When countdown became hidden (game started)
+  let sawMultiplierDuringRound = false; // Did we see any multiplier > 1.0 during this round?
+  let roundStartBetCount = 0;
+  let roundStartTotalBet = 0;
 
   const SAVE_COOLDOWN = 3000;
 
@@ -674,13 +677,59 @@ export async function startGameWatcher() {
         }
       }
 
+      // Track multiplier while game is running (for 1x crash detection)
+      if (isRunning && data.multiplier > 0) {
+        runningMultiplier = data.multiplier;
+        if (data.multiplier > maxRunningMultiplier) {
+          maxRunningMultiplier = data.multiplier;
+        }
+        // Mark that we saw a valid multiplier during this round
+        if (data.multiplier >= 1.0) {
+          sawMultiplierDuringRound = true;
+        }
+      }
+
+      // MÉTODO 0: Detect when countdown becomes hidden (game starts)
+      // This is critical for detecting 1x crashes
+      if (wasCountdownVisible && !isCountdownVisible) {
+        countdownHiddenTime = Date.now();
+        // Reset ALL multiplier tracking for the new round
+        sawMultiplierDuringRound = false;
+        runningMultiplier = 0;
+        maxRunningMultiplier = 0;
+        // Capture bet data at round start
+        roundStartBetCount = lastBetCount > 0 ? lastBetCount : data.betCount;
+        roundStartTotalBet = lastTotalBet > 0 ? lastTotalBet : data.totalBet;
+        console.log(`[GameWatcher] ⏱️ Countdown escondido (rodada iniciando) | Apostadores: ${roundStartBetCount} | Apostado: ${roundStartTotalBet}`);
+      }
+
       // MÉTODO 2: Detectar via transição de estado
       if (wasRunning && !isRunning) {
-        const multiplier = data.multiplier;
+        // Use the current counter value, or fallback to tracked running multiplier
+        // This handles instant 1x crashes where the counter resets before we can read it
+        let multiplier = data.multiplier;
+
+        // If counter already reset (shows 0), use the last running multiplier we captured
+        if (multiplier < 0.99 && runningMultiplier >= 0.99) {
+          console.log(`[GameWatcher] ⚠️ Counter já resetou (${multiplier}x), usando último running: ${runningMultiplier}x`);
+          multiplier = runningMultiplier;
+        }
+
+        // Additional fallback: if we tracked a max multiplier during the round
+        if (multiplier < 0.99 && maxRunningMultiplier >= 0.99) {
+          console.log(`[GameWatcher] ⚠️ Usando max running multiplier: ${maxRunningMultiplier}x`);
+          multiplier = maxRunningMultiplier;
+        }
+
+        // For instant crashes, assume 1.00x if we detected running but got no multiplier
+        if (multiplier < 0.99) {
+          console.log(`[GameWatcher] ⚠️ Crash instantâneo detectado! Assumindo 1.00x (counter: ${data.multiplier}x, running: ${runningMultiplier}x, max: ${maxRunningMultiplier}x)`);
+          multiplier = 1.00;
+        }
 
         console.log(`[GameWatcher] Transição detectada: rodando -> parado (mult: ${multiplier}x)`);
 
-        if (multiplier >= 1.0) {
+        if (multiplier >= 0.99) {
           const betCount = lastBetCount > 0 ? lastBetCount : data.betCount;
           const totalBet = lastTotalBet > 0 ? lastTotalBet : data.totalBet;
           const totalWin = multiplier <= 1.05 ? 0 : data.totalWin;
@@ -701,6 +750,10 @@ export async function startGameWatcher() {
           };
         }
 
+        // Reset running multiplier tracking for next round
+        runningMultiplier = 0;
+        maxRunningMultiplier = 0;
+
         currentGameState.isRunning = false;
         currentGameState.isBettingPhase = true;
         currentGameState.lastMultiplier = multiplier;
@@ -717,6 +770,10 @@ export async function startGameWatcher() {
         console.log('[GameWatcher] 🚀 Nova rodada iniciada!');
         currentGameState.isRunning = true;
 
+        // Reset running multiplier tracking for new round
+        runningMultiplier = 0;
+        maxRunningMultiplier = 0;
+
         // Verifica erro de autorização no início de cada rodada (throttled)
         const now = Date.now();
         if (now - lastAuthCheck > AUTH_CHECK_THROTTLE) {
@@ -726,15 +783,35 @@ export async function startGameWatcher() {
         currentGameState.isBettingPhase = false;
       }
 
-      // FALLBACK VIA COUNTDOWN
+      // MÉTODO 3: DETECÇÃO VIA COUNTDOWN (mais confiável para 1x)
+      // Se countdown reaparece rapidamente sem termos visto um multiplicador válido = crash 1x
       if (!wasCountdownVisible && isCountdownVisible) {
-        console.log('[GameWatcher] ⏱️ Countdown apareceu');
+        const now = Date.now();
+        const roundDuration = countdownHiddenTime > 0 ? (now - countdownHiddenTime) : 0;
 
-        if (pendingRoundData) {
-          const now = Date.now();
+        console.log(`[GameWatcher] ⏱️ Countdown reapareceu | Duração da rodada: ${roundDuration}ms | Viu multiplicador: ${sawMultiplierDuringRound} | Max mult: ${maxRunningMultiplier}x`);
+
+        // DETECÇÃO DE CRASH 1X:
+        // Se não vimos nenhum multiplicador válido durante a rodada, significa que foi um crash 1x.
+        // A rodada aconteceu (countdown escondeu e voltou) mas nunca capturamos um multiplicador >= 1.0
+        // Limite de 30s para evitar falsos positivos se algo deu errado.
+        const isValidRoundDuration = roundDuration > 0 && roundDuration < 30000;
+        const noMultiplierSeen = !sawMultiplierDuringRound && maxRunningMultiplier < 1.0;
+
+        if (countdownHiddenTime > 0 && isValidRoundDuration && noMultiplierSeen) {
+          console.log(`[GameWatcher] 🎯 CRASH 1x DETECTADO via countdown! Duração: ${roundDuration}ms | maxMult: ${maxRunningMultiplier}x`);
+
+          const betCount = roundStartBetCount || lastBetCount || data.betCount;
+          const totalBet = roundStartTotalBet || lastTotalBet || data.totalBet;
+
+          saveRound(1.00, betCount, totalBet, 0, 'countdown-1x');
+        }
+        // Fallback para dados pendentes (lógica original)
+        else if (pendingRoundData) {
           const timeSincePending = now - pendingRoundData.timestamp;
 
-          if (timeSincePending < 1000 && pendingRoundData.multiplier >= 1.0) {
+          // Use >= 0.99 to handle float precision and allow 1.00x rounds
+          if (timeSincePending < 1000 && pendingRoundData.multiplier >= 0.99) {
             console.log(`[GameWatcher] 📊 Rodada salva via countdown (dados pendentes): ${pendingRoundData.multiplier}x`);
             saveRound(
               pendingRoundData.multiplier,
@@ -746,11 +823,19 @@ export async function startGameWatcher() {
             pendingRoundData = null;
           }
         }
+
+        // Reset ALL tracking variables for next round
+        countdownHiddenTime = 0;
+        sawMultiplierDuringRound = false;
+        roundStartBetCount = 0;
+        roundStartTotalBet = 0;
+        runningMultiplier = 0;
+        maxRunningMultiplier = 0;
       }
 
       // DEBUG
       if (Math.random() < 0.005) {
-        console.log(`[Debug] Estado: running=${isRunning} | countdown=${isCountdownVisible} | hist[0]=${currentHistoryFirst} | lastSaved=${lastSavedHistoryFirst} | pending=${!!pendingRoundData}`);
+        console.log(`[Debug] countdown=${isCountdownVisible} | running=${isRunning} | mult=${data.multiplier}x | maxMult=${maxRunningMultiplier}x | sawMult=${sawMultiplierDuringRound} | hist[0]=${currentHistoryFirst}`);
       }
 
       wasRunning = isRunning;

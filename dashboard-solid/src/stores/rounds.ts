@@ -6,10 +6,8 @@ import type {
   HouseProfitData,
   HourlyAnalysisData,
   AdvancedStatsData,
-  MLPrediction,
 } from '../types';
-import { processBotRound } from './bots';
-import { mlStore } from './ml';
+import { onNewRoundArrived } from './ml';
 
 // API base URL
 const API_BASE = '/api';
@@ -163,10 +161,12 @@ export async function fetchInitialData() {
 export function processNewRound(round: RoundData) {
   addRound(round);
 
-  // Process bot decisions with the new round
   // Get all rounds including the new one
   const allRounds = [round, ...state.rounds.slice(0, 499)];
-  processBotRound(round, allRounds, mlStore.prediction);
+
+  // Use the ML sync system to wait for the correct prediction before processing bot
+  // This ensures the bot uses the prediction for the NEXT round, not the current one
+  onNewRoundArrived(round, allRounds);
 
   // Refresh stats when new round arrives
   fetchStats();
