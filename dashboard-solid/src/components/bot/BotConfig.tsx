@@ -2,6 +2,7 @@ import { Component, Show, createSignal } from 'solid-js';
 import { botsStore, setBotConfig, setBotBetAmount } from '../../stores/bots';
 import { cn } from '../../lib/utils';
 import type { BotId } from '../../types';
+import { createDefaultSafetyFirstConfig } from '../../types/bot';
 import { StrategyConfig } from './StrategyConfig';
 import { ConfigManager } from './ConfigManager';
 
@@ -56,6 +57,30 @@ export const BotConfig: Component<BotConfigProps> = (props) => {
       setBotConfig(props.botId, {
         dynamicCashout: {
           ...config().dynamicCashout,
+          [field]: numValue,
+        },
+      });
+    }
+  };
+
+  // Get safetyFirst config with fallback to defaults
+  const safetyFirst = () => config().safetyFirst || createDefaultSafetyFirstConfig();
+
+  const handleSafetyFirstToggle = () => {
+    setBotConfig(props.botId, {
+      safetyFirst: {
+        ...safetyFirst(),
+        enabled: !safetyFirst().enabled,
+      },
+    });
+  };
+
+  const handleSafetyFirstChange = (field: 'minCashout' | 'maxCashout', value: string) => {
+    const numValue = parseFloat(value);
+    if (!isNaN(numValue)) {
+      setBotConfig(props.botId, {
+        safetyFirst: {
+          ...safetyFirst(),
           [field]: numValue,
         },
       });
@@ -382,6 +407,83 @@ export const BotConfig: Component<BotConfigProps> = (props) => {
                         disabled={botState().active}
                       />
                     </div>
+                  </div>
+                </Show>
+              </div>
+
+              {/* Safety First - Hedge Betting */}
+              <div class="p-3 bg-bg-tertiary rounded-lg border-l-2 border-orange">
+                <div class="flex items-center justify-between mb-2">
+                  <div>
+                    <span class="text-sm text-text-secondary">
+                      Safety First (Hedge)
+                    </span>
+                    <p class="text-[10px] text-text-muted mt-0.5">
+                      1ª aposta ~2x (recupera), 2ª aposta = lucro
+                    </p>
+                  </div>
+                  <button
+                    class={cn(
+                      'w-11 h-6 rounded-full transition-colors relative shrink-0',
+                      safetyFirst().enabled
+                        ? 'bg-orange'
+                        : 'bg-bg-secondary',
+                      botState().active && 'opacity-50 cursor-not-allowed'
+                    )}
+                    onClick={() => !botState().active && handleSafetyFirstToggle()}
+                  >
+                    <span
+                      class={cn(
+                        'absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-all duration-200',
+                        safetyFirst().enabled && 'left-6'
+                      )}
+                    />
+                  </button>
+                </div>
+                <Show when={safetyFirst().enabled}>
+                  <div class="mt-3 p-2 bg-bg-secondary rounded">
+                    <p class="text-[10px] text-orange mb-2">
+                      ⚠️ A 1ª aposta sempre sai entre {safetyFirst().minCashout}x - {safetyFirst().maxCashout}x para recuperar o investimento total
+                    </p>
+                    <div class="grid grid-cols-2 gap-2">
+                      <div>
+                        <label class="block text-[10px] text-text-muted mb-1">
+                          Cashout Mín
+                        </label>
+                        <input
+                          type="number"
+                          value={safetyFirst().minCashout}
+                          onInput={(e) =>
+                            handleSafetyFirstChange('minCashout', e.currentTarget.value)
+                          }
+                          class="w-full bg-bg-tertiary text-white font-mono px-2 py-1 rounded border border-border focus:border-orange focus:outline-none text-sm text-center disabled:opacity-50"
+                          min="1.5"
+                          max="2.5"
+                          step="0.01"
+                          disabled={botState().active}
+                        />
+                      </div>
+                      <div>
+                        <label class="block text-[10px] text-text-muted mb-1">
+                          Cashout Máx
+                        </label>
+                        <input
+                          type="number"
+                          value={safetyFirst().maxCashout}
+                          onInput={(e) =>
+                            handleSafetyFirstChange('maxCashout', e.currentTarget.value)
+                          }
+                          class="w-full bg-bg-tertiary text-white font-mono px-2 py-1 rounded border border-border focus:border-orange focus:outline-none text-sm text-center disabled:opacity-50"
+                          min="1.5"
+                          max="2.5"
+                          step="0.01"
+                          disabled={botState().active}
+                        />
+                      </div>
+                    </div>
+                    <p class="text-[10px] text-text-muted mt-2">
+                      📊 Se o jogo passar de 2x: zero a zero garantido + 2ª aposta vira lucro puro
+                    </p>
                   </div>
                 </Show>
               </div>

@@ -1,7 +1,7 @@
 // Bot Strategy Types
 // This file defines the configurable strategy system for bots
 
-export type StrategyMode = 'ml_only' | 'rules_only' | 'hybrid' | 'breakeven_profit';
+export type StrategyMode = 'ml_only' | 'rules_only' | 'hybrid' | 'breakeven_profit' | 'wait_pattern' | 'conservative';
 
 // Bet sizing methods
 export type BetSizingMethod = 'fixed' | 'confidence_based' | 'proportional';
@@ -168,6 +168,78 @@ export interface BreakevenProfitConfig {
   };
 }
 
+// ====== Wait Pattern Strategy Configuration ======
+// Waits for X consecutive rounds below threshold before betting
+export interface WaitPatternConfig {
+  enabled: boolean;
+
+  // Pattern detection
+  pattern: {
+    // Minimum consecutive rounds below threshold to trigger bet
+    minStreakLength: number; // e.g., 3 = wait for 3 rounds below threshold
+    // Threshold for streak detection (rounds below this count)
+    streakThreshold: number; // e.g., 2.0 = count rounds where multiplier < 2.0
+  };
+
+  // Betting configuration
+  betting: {
+    // Target multiplier for cashout
+    targetMultiplier: number; // e.g., 2.0
+    // Base bet amount (in currency)
+    baseBetAmount: number; // e.g., 2.0
+    // Double bet after pattern detected?
+    doubleBetOnPattern: boolean;
+    // Maximum bet multiplier when doubling
+    maxBetMultiplier: number; // e.g., 2.0
+  };
+
+  // Risk management
+  risk: {
+    stopLossPercent: number; // Stop if lost X% of initial
+    takeProfitPercent: number; // Stop if gained X% of initial
+    skipAfterLoss: number; // Skip X rounds after a loss
+    maxConsecutiveLosses: number; // Pause after X consecutive losses
+    pauseRoundsAfterMaxLoss: number; // How many rounds to pause
+  };
+}
+
+// ====== Conservative 1.5x Strategy Configuration ======
+// Simple strategy betting at low target (1.3x-1.5x) with consistent bet sizing
+export interface ConservativeConfig {
+  enabled: boolean;
+
+  // Target and betting
+  betting: {
+    targetMultiplier: number; // e.g., 1.5
+    baseBetAmount: number; // e.g., 2.0
+    betEveryRound: boolean; // If false, uses pattern detection
+  };
+
+  // Optional pattern detection (if betEveryRound is false)
+  pattern: {
+    enabled: boolean;
+    minStreakLength: number;
+    streakThreshold: number;
+  };
+
+  // Progressive betting (optional)
+  progression: {
+    enabled: boolean;
+    // Increase bet after consecutive wins
+    increaseAfterWins: number; // e.g., 2 = increase after 2 wins
+    progressionFactor: number; // e.g., 1.5 = multiply bet by 1.5
+    maxBetMultiplier: number; // e.g., 3.0 = max 3x base bet
+    resetAfterLoss: boolean;
+  };
+
+  // Risk management
+  risk: {
+    stopLossPercent: number;
+    takeProfitPercent: number;
+    skipAfterLoss: number;
+  };
+}
+
 // ====== Full Strategy Configuration ======
 export interface StrategyConfig {
   mode: StrategyMode;
@@ -175,6 +247,8 @@ export interface StrategyConfig {
   rulesStrategy: RulesStrategyConfig;
   hybrid: HybridConfig;
   breakevenProfit: BreakevenProfitConfig;
+  waitPattern: WaitPatternConfig;
+  conservative: ConservativeConfig;
 }
 
 // ====== Default Configurations ======
@@ -295,15 +369,177 @@ export function createDefaultBreakevenProfitConfig(): BreakevenProfitConfig {
   };
 }
 
+export function createDefaultWaitPatternConfig(): WaitPatternConfig {
+  return {
+    enabled: true,
+    pattern: {
+      minStreakLength: 3, // Wait for 3 rounds below threshold
+      streakThreshold: 2.0, // Count rounds where multiplier < 2.0
+    },
+    betting: {
+      targetMultiplier: 2.0,
+      baseBetAmount: 2.0,
+      doubleBetOnPattern: false,
+      maxBetMultiplier: 2.0,
+    },
+    risk: {
+      stopLossPercent: 50,
+      takeProfitPercent: 100,
+      skipAfterLoss: 0,
+      maxConsecutiveLosses: 5,
+      pauseRoundsAfterMaxLoss: 3,
+    },
+  };
+}
+
+export function createDefaultConservativeConfig(): ConservativeConfig {
+  return {
+    enabled: true,
+    betting: {
+      targetMultiplier: 1.5,
+      baseBetAmount: 2.0,
+      betEveryRound: true, // Simple: bet every round
+    },
+    pattern: {
+      enabled: false,
+      minStreakLength: 3,
+      streakThreshold: 1.5,
+    },
+    progression: {
+      enabled: false,
+      increaseAfterWins: 2,
+      progressionFactor: 1.5,
+      maxBetMultiplier: 3.0,
+      resetAfterLoss: true,
+    },
+    risk: {
+      stopLossPercent: 50,
+      takeProfitPercent: 100,
+      skipAfterLoss: 0,
+    },
+  };
+}
+
 export function createDefaultStrategyConfig(): StrategyConfig {
   return {
-    mode: 'rules_only', // Start with rules only as default
+    mode: 'conservative', // Changed default to conservative 1.5x strategy
     mlStrategy: createDefaultMLStrategyConfig(),
     rulesStrategy: createDefaultRulesStrategyConfig(),
     hybrid: createDefaultHybridConfig(),
     breakevenProfit: createDefaultBreakevenProfitConfig(),
+    waitPattern: createDefaultWaitPatternConfig(),
+    conservative: createDefaultConservativeConfig(),
   };
 }
+
+// ====== Strategy Presets ======
+// Pre-configured strategies based on backtest results
+
+export const STRATEGY_PRESETS = {
+  // Best overall ROI from backtests
+  conservative_1_5x: {
+    name: 'Conservador 1.5x',
+    description: 'Aposta R$2 em todas rodadas, sai em 1.5x. Win rate ~67%',
+    config: {
+      mode: 'conservative' as StrategyMode,
+      conservative: {
+        enabled: true,
+        betting: {
+          targetMultiplier: 1.5,
+          baseBetAmount: 2.0,
+          betEveryRound: true,
+        },
+        pattern: { enabled: false, minStreakLength: 3, streakThreshold: 1.5 },
+        progression: { enabled: false, increaseAfterWins: 2, progressionFactor: 1.5, maxBetMultiplier: 3.0, resetAfterLoss: true },
+        risk: { stopLossPercent: 50, takeProfitPercent: 100, skipAfterLoss: 0 },
+      },
+    },
+  },
+
+  // Best risk-adjusted (lowest drawdown)
+  wait_pattern_2x: {
+    name: 'Esperar Padrão 2x',
+    description: 'Espera 3 rodadas <2x, depois aposta em 2x. Menos apostas, menor risco.',
+    config: {
+      mode: 'wait_pattern' as StrategyMode,
+      waitPattern: {
+        enabled: true,
+        pattern: {
+          minStreakLength: 3,
+          streakThreshold: 2.0,
+        },
+        betting: {
+          targetMultiplier: 2.0,
+          baseBetAmount: 2.0,
+          doubleBetOnPattern: false,
+          maxBetMultiplier: 2.0,
+        },
+        risk: {
+          stopLossPercent: 50,
+          takeProfitPercent: 100,
+          skipAfterLoss: 0,
+          maxConsecutiveLosses: 5,
+          pauseRoundsAfterMaxLoss: 3,
+        },
+      },
+    },
+  },
+
+  // Aggressive pattern with double bet
+  wait_pattern_aggressive: {
+    name: 'Padrão Agressivo',
+    description: 'Espera 4 rodadas <2x, dobra aposta. Mais risco, mais potencial.',
+    config: {
+      mode: 'wait_pattern' as StrategyMode,
+      waitPattern: {
+        enabled: true,
+        pattern: {
+          minStreakLength: 4,
+          streakThreshold: 2.0,
+        },
+        betting: {
+          targetMultiplier: 2.0,
+          baseBetAmount: 2.0,
+          doubleBetOnPattern: true,
+          maxBetMultiplier: 2.0,
+        },
+        risk: {
+          stopLossPercent: 50,
+          takeProfitPercent: 100,
+          skipAfterLoss: 1,
+          maxConsecutiveLosses: 4,
+          pauseRoundsAfterMaxLoss: 5,
+        },
+      },
+    },
+  },
+
+  // Conservative with progression
+  progressive_1_5x: {
+    name: 'Progressivo 1.5x',
+    description: 'Aposta em 1.5x com progressão após wins. Equilibrado.',
+    config: {
+      mode: 'conservative' as StrategyMode,
+      conservative: {
+        enabled: true,
+        betting: {
+          targetMultiplier: 1.5,
+          baseBetAmount: 2.0,
+          betEveryRound: true,
+        },
+        pattern: { enabled: false, minStreakLength: 3, streakThreshold: 1.5 },
+        progression: {
+          enabled: true,
+          increaseAfterWins: 2,
+          progressionFactor: 1.5,
+          maxBetMultiplier: 2.0,
+          resetAfterLoss: true,
+        },
+        risk: { stopLossPercent: 50, takeProfitPercent: 100, skipAfterLoss: 0 },
+      },
+    },
+  },
+} as const;
 
 // ====== Strategy Decision Result ======
 export interface StrategyDecisionResult {

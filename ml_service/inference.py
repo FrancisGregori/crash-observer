@@ -77,7 +77,7 @@ class CrashMLInferenceService:
         logger.info("Loading models...")
 
         model_keys = [
-            "gt_2x", "gt_3x", "gt_4x", "gt_5x",
+            "gt_1_5x", "gt_2x", "gt_3x", "gt_4x", "gt_5x",
             "gt_7x", "gt_10x", "early_crash", "high_loss_streak"
         ]
 
@@ -296,6 +296,7 @@ class CrashMLInferenceService:
         predictions = {}
 
         model_to_output = {
+            "gt_1_5x": "prob_gt_1_5x",
             "gt_2x": "prob_gt_2x",
             "gt_3x": "prob_gt_3x",
             "gt_4x": "prob_gt_4x",

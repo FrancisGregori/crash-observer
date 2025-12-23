@@ -4,6 +4,7 @@ import { roundsStore, fetchInitialData } from './stores/rounds';
 import { connectionStore } from './stores/connection';
 import { TopBar } from './components/layout/TopBar';
 import { MainLayout } from './components/layout/MainLayout';
+import { BotHistoryBar } from './components/bot/BotHistoryBar';
 
 const App: Component = () => {
   const { connect, disconnect } = useWebSocket();
@@ -24,6 +25,7 @@ const App: Component = () => {
     <div class="h-screen flex flex-col overflow-hidden">
       <TopBar />
       <MainLayout />
+      <BotHistoryBar />
     </div>
   );
 };

@@ -35,8 +35,9 @@ export interface BotHistoryItem {
 // Bot statistics
 export interface BotStats {
   totalBets: number;
-  wins: number;
-  losses: number;
+  wins: number;        // Both bets won
+  partials: number;    // Only first bet won (partial win)
+  losses: number;      // Both bets lost
   totalWagered: number;
   totalProfit: number;
 }
@@ -70,6 +71,15 @@ export interface BotState {
   sessionStartTime: number | null; // When bot was started
 }
 
+// Safety First configuration - general parameter for all strategies
+// First bet always exits at ~2x to recover investment, second bet is for profit
+export interface SafetyFirstConfig {
+  enabled: boolean;
+  // Cashout range for first bet (safety bet)
+  minCashout: number;  // e.g., 1.96
+  maxCashout: number;  // e.g., 2.10
+}
+
 // Bot configuration
 export interface BotConfig {
   botId: BotId;
@@ -94,6 +104,8 @@ export interface BotConfig {
     normal: number;
     aggressive: number;
   };
+  // Safety First: first bet at ~2x to recover, second bet for profit
+  safetyFirst: SafetyFirstConfig;
   mlConfig: MLConfig;
   strategy: StrategyConfig;
 }
@@ -140,6 +152,7 @@ export interface BotRiskState {
   sessionWins: number;
   stopLossTriggered: boolean;
   takeProfitTriggered: boolean;
+  insufficientBalanceTriggered: boolean; // Bot stopped due to low balance
 }
 
 // Bot decision
@@ -186,6 +199,7 @@ export function createDefaultBotState(botId: BotId): BotState {
     stats: {
       totalBets: 0,
       wins: 0,
+      partials: 0,
       losses: 0,
       totalWagered: 0,
       totalProfit: 0,
@@ -203,6 +217,15 @@ export function createDefaultBotState(botId: BotId): BotState {
       lastHitTarget: null,
     },
     sessionStartTime: null,
+  };
+}
+
+// Create default safety first config
+export function createDefaultSafetyFirstConfig(): SafetyFirstConfig {
+  return {
+    enabled: false,
+    minCashout: 1.96,
+    maxCashout: 2.10,
   };
 }
 
@@ -231,6 +254,7 @@ export function createDefaultBotConfig(botId: BotId): BotConfig {
       normal: 3.0,
       aggressive: 5.0,
     },
+    safetyFirst: createDefaultSafetyFirstConfig(),
     mlConfig: createDefaultMLConfig(),
     strategy: createDefaultStrategyConfig(),
   };
@@ -251,5 +275,6 @@ export function createDefaultBotRiskState(botId: BotId, sessionStartBalance: num
     sessionWins: 0,
     stopLossTriggered: false,
     takeProfitTriggered: false,
+    insufficientBalanceTriggered: false,
   };
 }

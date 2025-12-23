@@ -61,16 +61,23 @@ export const BotStatsGrid: Component<BotStatsGridProps> = (props) => {
           </div>
         </div>
 
-        {/* Win/Loss Bar */}
+        {/* Win/Partial/Loss Bar */}
         <div class="mb-2">
           <div class="flex justify-between text-xs text-text-muted mb-1">
-            <span>V: {stats().wins}</span>
-            <span>D: {stats().losses}</span>
+            <span class="text-green">V: {stats().wins}</span>
+            <span class="text-yellow">P: {stats().partials}</span>
+            <span class="text-red">D: {stats().losses}</span>
           </div>
-          <div class="h-2 bg-red rounded-full overflow-hidden">
+          <div class="h-2 bg-red rounded-full overflow-hidden flex">
+            {/* Win portion (green) */}
             <div
               class="h-full bg-green transition-all duration-300"
-              style={{ width: `${winRate()}%` }}
+              style={{ width: `${stats().totalBets > 0 ? (stats().wins / stats().totalBets) * 100 : 0}%` }}
+            />
+            {/* Partial portion (yellow) */}
+            <div
+              class="h-full bg-yellow transition-all duration-300"
+              style={{ width: `${stats().totalBets > 0 ? (stats().partials / stats().totalBets) * 100 : 0}%` }}
             />
           </div>
         </div>

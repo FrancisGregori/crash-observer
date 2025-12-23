@@ -406,6 +406,7 @@ def run_training_pipeline(db_path: Path = DATABASE_PATH) -> Dict:
     all_metrics = {}
 
     target_names = [
+        "label_gt_1_5x",
         "label_gt_2x",
         "label_gt_3x",
         "label_gt_4x",
@@ -418,6 +419,7 @@ def run_training_pipeline(db_path: Path = DATABASE_PATH) -> Dict:
 
     # Map label names to model file keys
     label_to_model_key = {
+        "label_gt_1_5x": "gt_1_5x",
         "label_gt_2x": "gt_2x",
         "label_gt_3x": "gt_3x",
         "label_gt_4x": "gt_4x",

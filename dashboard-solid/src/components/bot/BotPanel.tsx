@@ -1,11 +1,9 @@
-import { Component, Show } from 'solid-js';
-import { botsStore } from '../../stores/bots';
+import { Component } from 'solid-js';
 import { BotStatusBar } from './BotStatusBar';
 import { BotBalanceManager } from './BotBalanceManager';
 import { BotDecisionBox } from './BotDecisionBox';
 import { BotActiveBet } from './BotActiveBet';
 import { BotStatsGrid } from './BotStatsGrid';
-import { BotHistory } from './BotHistory';
 import { BotConfig } from './BotConfig';
 import type { BotId } from '../../types';
 
@@ -30,9 +28,6 @@ export const BotPanel: Component<BotPanelProps> = (props) => {
 
       {/* Stats Grid */}
       <BotStatsGrid botId={props.botId} />
-
-      {/* History */}
-      <BotHistory botId={props.botId} />
 
       {/* Config */}
       <BotConfig botId={props.botId} />

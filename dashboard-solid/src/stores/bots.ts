@@ -30,6 +30,7 @@ import {
   enableLiveBetting,
   randomizeCashout,
 } from '../lib/api';
+import { getCurrentSignal, type SequenceSignal } from './sequence';
 
 // Storage keys
 const STORAGE_KEYS = {
@@ -242,6 +243,7 @@ export async function setBotActive(botId: BotId, active: boolean): Promise<boole
     setState(botId, 'state', 'stats', {
       totalBets: 0,
       wins: 0,
+      partials: 0,
       losses: 0,
       totalWagered: 0,
       totalProfit: 0,
@@ -288,15 +290,22 @@ export function addBotHistoryItem(botId: BotId, item: BotHistoryItem) {
 
 export function updateBotStats(
   botId: BotId,
-  won: boolean,
+  won1: boolean,
+  won2: boolean,
   wagered: number,
   profit: number
 ) {
+  // Win = both bets won, Partial = only first won, Loss = neither won
+  const isWin = won1 && won2;
+  const isPartial = won1 && !won2;
+  const isLoss = !won1 && !won2;
+
   setState(botId, 'state', 'stats', (prev) => ({
     ...prev,
     totalBets: prev.totalBets + 1,
-    wins: prev.wins + (won ? 1 : 0),
-    losses: prev.losses + (won ? 0 : 1),
+    wins: prev.wins + (isWin ? 1 : 0),
+    partials: prev.partials + (isPartial ? 1 : 0),
+    losses: prev.losses + (isLoss ? 1 : 0),
     totalWagered: prev.totalWagered + wagered,
     totalProfit: prev.totalProfit + profit,
   }));
@@ -470,14 +479,14 @@ export async function processBotRound(
         botState.balance
       );
 
-      // Update stats
-      const won = won1 || won2;
-      updateBotStats(botId, won, bet.amount * 2, profit);
+      // Update stats (passing both won1 and won2 for V/P/D tracking)
+      updateBotStats(botId, won1, won2, bet.amount * 2, profit);
 
       // Add to history
       addBotHistoryItem(botId, historyItem);
 
-      // Update risk state
+      // Update risk state (won = at least one bet won for streak tracking)
+      const won = won1 || won2;
       updateRiskStateAfterBet(botId, won, profit);
 
       // Clear active bet
@@ -486,9 +495,17 @@ export async function processBotRound(
       console.log(`[Bot ${botId}] Resultado: ${resultText}, Lucro: ${profit.toFixed(2)}`);
     }
 
-    // 2. Check risk conditions (stop loss, take profit, pause)
-    if (riskState.stopLossTriggered || riskState.takeProfitTriggered) {
-      console.log(`[Bot ${botId}] Stop loss ou take profit atingido`);
+    // 2. Check risk conditions (stop loss, take profit, insufficient balance, pause)
+    if (riskState.stopLossTriggered || riskState.takeProfitTriggered || riskState.insufficientBalanceTriggered) {
+      console.log(`[Bot ${botId}] Stop loss, take profit ou saldo insuficiente atingido`);
+      continue;
+    }
+
+    // Check for insufficient balance (need 2x minBetAmount for double bet)
+    const minRequiredBalance = botConfig.minBetAmount * 2;
+    if (botState.balance < minRequiredBalance) {
+      console.log(`[Bot ${botId}] ⚠️ SALDO INSUFICIENTE: R$${botState.balance.toFixed(2)} < R$${minRequiredBalance.toFixed(2)} mínimo`);
+      setBotRiskState(botId, { insufficientBalanceTriggered: true });
       continue;
     }
 
@@ -505,12 +522,16 @@ export async function processBotRound(
     }
 
     // 3. Make decision for next round
+    // Get current sequence signal for decision making
+    const sequenceSignal = getCurrentSignal();
+
     const decision = makeBotDecision(
       rounds,
       botState,
       botConfig,
       riskState,
-      mlPrediction
+      mlPrediction,
+      sequenceSignal
     );
 
     // Update decision in state
@@ -522,14 +543,34 @@ export async function processBotRound(
     if (decision.shouldBet) {
       const newBet = createBetFromDecision(decision, botState.liveMode);
       if (newBet) {
+        // Apply Safety First if enabled
+        // Safety First: first bet always exits at ~2x to recover investment
+        const safetyFirst = botConfig.safetyFirst;
+        if (safetyFirst?.enabled) {
+          // Calculate random cashout between min and max
+          const safetyCashout = safetyFirst.minCashout +
+            Math.random() * (safetyFirst.maxCashout - safetyFirst.minCashout);
+          const roundedSafetyCashout = Math.round(safetyCashout * 100) / 100;
+
+          console.log(
+            `[Bot ${botId}] Safety First: Cashout1 ${newBet.cashout1.toFixed(2)}x -> ${roundedSafetyCashout}x (hedge)`
+          );
+
+          newBet.cashout1 = roundedSafetyCashout;
+          newBet.baseCashout1 = roundedSafetyCashout;
+        }
+
         // In LIVE mode, place real bet via API
         if (botState.liveMode) {
           // Randomize cashouts slightly (like original dashboard)
-          const randomCashout1 = randomizeCashout(newBet.cashout1, 0.01, 0.05);
+          // For Safety First, keep cashout1 in the safe range
+          const randomCashout1 = safetyFirst?.enabled
+            ? randomizeCashout(newBet.cashout1, 0.01, 0.03) // Smaller variance for safety
+            : randomizeCashout(newBet.cashout1, 0.01, 0.05);
           const randomCashout2 = randomizeCashout(newBet.cashout2, 0.01, 0.05);
 
           console.log(
-            `[Bot ${botId}] Placing REAL bet: R$${newBet.amount.toFixed(2)} x2 | Targets: ${randomCashout1}x and ${randomCashout2}x`
+            `[Bot ${botId}] Placing REAL bet: R$${newBet.amount.toFixed(2)} x2 | Targets: ${randomCashout1}x and ${randomCashout2}x${safetyFirst?.enabled ? ' (SAFETY FIRST)' : ''}`
           );
 
           const result = await placeLiveBet(
@@ -551,7 +592,7 @@ export async function processBotRound(
 
         setBotActiveBet(botId, newBet);
         console.log(
-          `[Bot ${botId}] Bet created: R$${newBet.amount.toFixed(2)} @ ${newBet.cashout1}x / ${newBet.cashout2}x${botState.liveMode ? ' (LIVE)' : ' (SIM)'}`
+          `[Bot ${botId}] Bet created: R$${newBet.amount.toFixed(2)} @ ${newBet.cashout1}x / ${newBet.cashout2}x${botState.liveMode ? ' (LIVE)' : ' (SIM)'}${safetyFirst?.enabled ? ' [HEDGE]' : ''}`
         );
       }
     }

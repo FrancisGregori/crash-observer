@@ -635,6 +635,7 @@ class LabelGenerator:
         multipliers = df["multiplier"].values
 
         labels = {
+            "label_gt_1_5x": LabelGenerator.generate_threshold_labels(multipliers, 1.5),
             "label_gt_2x": LabelGenerator.generate_threshold_labels(multipliers, 2.0),
             "label_gt_3x": LabelGenerator.generate_threshold_labels(multipliers, 3.0),
             "label_gt_4x": LabelGenerator.generate_threshold_labels(multipliers, 4.0),

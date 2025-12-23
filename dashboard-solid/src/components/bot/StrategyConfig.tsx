@@ -2,7 +2,15 @@ import { Component, Show, For, createSignal, createEffect, on } from 'solid-js';
 import { botsStore, setBotConfig } from '../../stores/bots';
 import { cn } from '../../lib/utils';
 import type { BotId, StrategyMode, StrategyConfig as StrategyConfigType } from '../../types';
-import { createDefaultBreakevenProfitConfig, type BreakevenProfitConfig } from '../../types/strategy';
+import {
+  createDefaultBreakevenProfitConfig,
+  createDefaultWaitPatternConfig,
+  createDefaultConservativeConfig,
+  type BreakevenProfitConfig,
+  type WaitPatternConfig,
+  type ConservativeConfig,
+} from '../../types/strategy';
+import { StrategyPresetSelector } from './StrategyPresetSelector';
 
 interface StrategyConfigProps {
   botId: BotId;
@@ -15,9 +23,17 @@ export const StrategyConfig: Component<StrategyConfigProps> = (props) => {
   const strategy = () => config().strategy;
   const botState = () => botsStore[props.botId].state;
 
-  // Ensure breakevenProfit config exists (for migrations from older versions)
+  // Ensure configs exist (for migrations from older versions)
   const breakevenProfit = (): BreakevenProfitConfig => {
     return strategy().breakevenProfit || createDefaultBreakevenProfitConfig();
+  };
+
+  const waitPattern = (): WaitPatternConfig => {
+    return strategy().waitPattern || createDefaultWaitPatternConfig();
+  };
+
+  const conservative = (): ConservativeConfig => {
+    return strategy().conservative || createDefaultConservativeConfig();
   };
 
   // Auto-expand section ONLY when mode changes (not on other config changes)
@@ -33,6 +49,10 @@ export const StrategyConfig: Component<StrategyConfigProps> = (props) => {
           setExpandedSection('rules');
         } else if (mode === 'hybrid') {
           setExpandedSection('ml');
+        } else if (mode === 'wait_pattern') {
+          setExpandedSection('wait_pattern');
+        } else if (mode === 'conservative') {
+          setExpandedSection('conservative');
         }
       },
       { defer: false }
@@ -63,15 +83,29 @@ export const StrategyConfig: Component<StrategyConfigProps> = (props) => {
     });
   };
 
+  const updateWaitPattern = (updates: any) => {
+    updateStrategy({
+      waitPattern: { ...waitPattern(), ...updates },
+    });
+  };
+
+  const updateConservative = (updates: any) => {
+    updateStrategy({
+      conservative: { ...conservative(), ...updates },
+    });
+  };
+
   const toggleSection = (section: string) => {
     setExpandedSection(expandedSection() === section ? null : section);
   };
 
-  const modes: { value: StrategyMode; label: string; desc: string }[] = [
+  const modes: { value: StrategyMode; label: string; desc: string; color?: string }[] = [
+    { value: 'conservative', label: '1.5x', desc: 'Conservador simples', color: 'green' },
+    { value: 'wait_pattern', label: 'Padrão', desc: 'Espera sequência', color: 'cyan' },
     { value: 'rules_only', label: 'Regras', desc: 'Sequências e padrões' },
-    { value: 'ml_only', label: 'ML', desc: 'Apenas Machine Learning' },
-    { value: 'hybrid', label: 'Híbrido', desc: 'ML + Regras combinados' },
-    { value: 'breakeven_profit', label: 'BE+Lucro', desc: 'Break-even + ML target' },
+    { value: 'ml_only', label: 'ML', desc: 'Machine Learning' },
+    { value: 'hybrid', label: 'Híbrido', desc: 'ML + Regras' },
+    { value: 'breakeven_profit', label: 'BE+Lucro', desc: 'Break-even + ML' },
   ];
 
   const updateBreakevenProfit = (updates: any) => {
@@ -80,20 +114,31 @@ export const StrategyConfig: Component<StrategyConfigProps> = (props) => {
     });
   };
 
+  const getModeButtonClass = (mode: { value: StrategyMode; color?: string }) => {
+    if (strategy().mode !== mode.value) {
+      return 'bg-bg-secondary text-text-secondary hover:bg-bg-secondary/80';
+    }
+    if (mode.color === 'green') return 'bg-green text-bg-primary';
+    if (mode.color === 'cyan') return 'bg-cyan text-bg-primary';
+    if (mode.value === 'breakeven_profit') return 'bg-purple text-white';
+    return 'bg-cyan text-bg-primary';
+  };
+
   return (
     <div class="space-y-3">
+      {/* Quick Preset Selector */}
+      <StrategyPresetSelector botId={props.botId} />
+
       {/* Strategy Mode Selector */}
       <div class="p-3 bg-bg-tertiary rounded-lg">
         <div class="text-xs text-text-muted mb-2">Modo de Estratégia</div>
-        <div class="grid grid-cols-2 gap-1">
+        <div class="grid grid-cols-3 gap-1">
           <For each={modes}>
             {(mode) => (
               <button
                 class={cn(
                   'py-2 px-2 rounded text-xs font-medium transition-colors',
-                  strategy().mode === mode.value
-                    ? mode.value === 'breakeven_profit' ? 'bg-purple text-white' : 'bg-cyan text-bg-primary'
-                    : 'bg-bg-secondary text-text-secondary hover:bg-bg-secondary/80'
+                  getModeButtonClass(mode)
                 )}
                 onClick={() => updateStrategy({ mode: mode.value })}
                 disabled={botState().active}
@@ -1073,6 +1118,421 @@ export const StrategyConfig: Component<StrategyConfigProps> = (props) => {
                       class="w-full bg-bg-secondary text-white font-mono px-2 py-1 rounded border border-border text-sm text-center"
                       min="30"
                       max="80"
+                      disabled={botState().active}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </Show>
+        </div>
+      </Show>
+
+      {/* Conservative Strategy Config */}
+      <Show when={strategy().mode === 'conservative'}>
+        <div class="p-3 bg-bg-tertiary rounded-lg border-l-2 border-green">
+          <button
+            class="w-full flex items-center justify-between"
+            onClick={() => toggleSection('conservative')}
+            disabled={botState().active}
+          >
+            <span class="text-sm font-medium text-green">Configuração Conservador</span>
+            <span class="text-text-muted text-xs">
+              {expandedSection() === 'conservative' ? '▲' : '▼'}
+            </span>
+          </button>
+
+          <Show when={expandedSection() === 'conservative'}>
+            <div class="mt-3 space-y-4">
+              {/* Strategy Explanation */}
+              <div class="p-2 bg-green/10 rounded text-xs text-green border border-green/30">
+                <strong>Estratégia simples:</strong> Aposta um valor fixo em todas as rodadas e sai em um target baixo (1.3x-1.5x).
+                Alto win rate, lucro consistente.
+              </div>
+
+              {/* Betting Config */}
+              <div class="space-y-3">
+                <div class="grid grid-cols-2 gap-3">
+                  <div>
+                    <label class="block text-xs text-text-muted mb-1">Target</label>
+                    <input
+                      type="number"
+                      value={conservative().betting.targetMultiplier}
+                      onInput={(e) =>
+                        updateConservative({
+                          betting: {
+                            ...conservative().betting,
+                            targetMultiplier: parseFloat(e.currentTarget.value) || 1.5,
+                          },
+                        })
+                      }
+                      class="w-full bg-bg-secondary text-white font-mono px-3 py-2 rounded border border-border text-sm"
+                      min="1.1"
+                      max="3"
+                      step="0.1"
+                      disabled={botState().active}
+                    />
+                  </div>
+                  <div>
+                    <label class="block text-xs text-text-muted mb-1">Valor Aposta</label>
+                    <input
+                      type="number"
+                      value={conservative().betting.baseBetAmount}
+                      onInput={(e) =>
+                        updateConservative({
+                          betting: {
+                            ...conservative().betting,
+                            baseBetAmount: parseFloat(e.currentTarget.value) || 2,
+                          },
+                        })
+                      }
+                      class="w-full bg-bg-secondary text-white font-mono px-3 py-2 rounded border border-border text-sm"
+                      min="1"
+                      step="0.5"
+                      disabled={botState().active}
+                    />
+                  </div>
+                </div>
+
+                {/* Bet Every Round Toggle */}
+                <div class="flex items-center justify-between p-2 bg-bg-secondary rounded">
+                  <div>
+                    <span class="text-xs text-text-secondary">Apostar toda rodada</span>
+                    <p class="text-[10px] text-text-muted">Se desativado, usa detecção de padrão</p>
+                  </div>
+                  <button
+                    class={cn(
+                      'w-9 h-5 rounded-full transition-colors relative',
+                      conservative().betting.betEveryRound ? 'bg-green' : 'bg-bg-tertiary'
+                    )}
+                    onClick={() =>
+                      updateConservative({
+                        betting: {
+                          ...conservative().betting,
+                          betEveryRound: !conservative().betting.betEveryRound,
+                        },
+                      })
+                    }
+                    disabled={botState().active}
+                  >
+                    <span
+                      class={cn(
+                        'absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-all',
+                        conservative().betting.betEveryRound && 'left-4'
+                      )}
+                    />
+                  </button>
+                </div>
+              </div>
+
+              {/* Progression Config */}
+              <div class="space-y-2">
+                <div class="flex items-center justify-between p-2 bg-bg-secondary rounded">
+                  <div>
+                    <span class="text-xs text-text-secondary">Progressão</span>
+                    <p class="text-[10px] text-text-muted">Aumentar aposta após wins</p>
+                  </div>
+                  <button
+                    class={cn(
+                      'w-9 h-5 rounded-full transition-colors relative',
+                      conservative().progression.enabled ? 'bg-green' : 'bg-bg-tertiary'
+                    )}
+                    onClick={() =>
+                      updateConservative({
+                        progression: {
+                          ...conservative().progression,
+                          enabled: !conservative().progression.enabled,
+                        },
+                      })
+                    }
+                    disabled={botState().active}
+                  >
+                    <span
+                      class={cn(
+                        'absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-all',
+                        conservative().progression.enabled && 'left-4'
+                      )}
+                    />
+                  </button>
+                </div>
+
+                <Show when={conservative().progression.enabled}>
+                  <div class="grid grid-cols-2 gap-2 p-2 bg-bg-secondary rounded">
+                    <div>
+                      <label class="block text-[10px] text-text-muted mb-1">Após X wins</label>
+                      <input
+                        type="number"
+                        value={conservative().progression.increaseAfterWins}
+                        onInput={(e) =>
+                          updateConservative({
+                            progression: {
+                              ...conservative().progression,
+                              increaseAfterWins: parseInt(e.currentTarget.value) || 2,
+                            },
+                          })
+                        }
+                        class="w-full bg-bg-tertiary text-white font-mono px-2 py-1 rounded text-xs text-center"
+                        min="1"
+                        max="5"
+                        disabled={botState().active}
+                      />
+                    </div>
+                    <div>
+                      <label class="block text-[10px] text-text-muted mb-1">Multiplicar por</label>
+                      <input
+                        type="number"
+                        value={conservative().progression.progressionFactor}
+                        onInput={(e) =>
+                          updateConservative({
+                            progression: {
+                              ...conservative().progression,
+                              progressionFactor: parseFloat(e.currentTarget.value) || 1.5,
+                            },
+                          })
+                        }
+                        class="w-full bg-bg-tertiary text-white font-mono px-2 py-1 rounded text-xs text-center"
+                        min="1.1"
+                        max="3"
+                        step="0.1"
+                        disabled={botState().active}
+                      />
+                    </div>
+                  </div>
+                </Show>
+              </div>
+
+              {/* Risk Config */}
+              <div class="grid grid-cols-2 gap-2">
+                <div>
+                  <label class="block text-[10px] text-text-muted mb-1">Stop Loss %</label>
+                  <input
+                    type="number"
+                    value={conservative().risk.stopLossPercent}
+                    onInput={(e) =>
+                      updateConservative({
+                        risk: {
+                          ...conservative().risk,
+                          stopLossPercent: parseInt(e.currentTarget.value) || 50,
+                        },
+                      })
+                    }
+                    class="w-full bg-bg-secondary text-white font-mono px-2 py-1 rounded border border-border text-sm text-center"
+                    min="10"
+                    max="90"
+                    disabled={botState().active}
+                  />
+                </div>
+                <div>
+                  <label class="block text-[10px] text-text-muted mb-1">Take Profit %</label>
+                  <input
+                    type="number"
+                    value={conservative().risk.takeProfitPercent}
+                    onInput={(e) =>
+                      updateConservative({
+                        risk: {
+                          ...conservative().risk,
+                          takeProfitPercent: parseInt(e.currentTarget.value) || 100,
+                        },
+                      })
+                    }
+                    class="w-full bg-bg-secondary text-white font-mono px-2 py-1 rounded border border-border text-sm text-center"
+                    min="10"
+                    max="500"
+                    disabled={botState().active}
+                  />
+                </div>
+              </div>
+            </div>
+          </Show>
+        </div>
+      </Show>
+
+      {/* Wait Pattern Strategy Config */}
+      <Show when={strategy().mode === 'wait_pattern'}>
+        <div class="p-3 bg-bg-tertiary rounded-lg border-l-2 border-cyan">
+          <button
+            class="w-full flex items-center justify-between"
+            onClick={() => toggleSection('wait_pattern')}
+            disabled={botState().active}
+          >
+            <span class="text-sm font-medium text-cyan">Configuração Esperar Padrão</span>
+            <span class="text-text-muted text-xs">
+              {expandedSection() === 'wait_pattern' ? '▲' : '▼'}
+            </span>
+          </button>
+
+          <Show when={expandedSection() === 'wait_pattern'}>
+            <div class="mt-3 space-y-4">
+              {/* Strategy Explanation */}
+              <div class="p-2 bg-cyan/10 rounded text-xs text-cyan border border-cyan/30">
+                <strong>Como funciona:</strong> Espera X rodadas consecutivas abaixo de um threshold antes de apostar.
+                Menos apostas, menor exposição ao risco.
+              </div>
+
+              {/* Pattern Detection */}
+              <div class="space-y-2">
+                <div class="text-xs text-text-muted font-medium">Detecção de Padrão</div>
+                <div class="grid grid-cols-2 gap-2">
+                  <div>
+                    <label class="block text-[10px] text-text-muted mb-1">Mín. rodadas</label>
+                    <input
+                      type="number"
+                      value={waitPattern().pattern.minStreakLength}
+                      onInput={(e) =>
+                        updateWaitPattern({
+                          pattern: {
+                            ...waitPattern().pattern,
+                            minStreakLength: parseInt(e.currentTarget.value) || 3,
+                          },
+                        })
+                      }
+                      class="w-full bg-bg-secondary text-white font-mono px-2 py-1 rounded border border-border text-sm text-center"
+                      min="2"
+                      max="10"
+                      disabled={botState().active}
+                    />
+                  </div>
+                  <div>
+                    <label class="block text-[10px] text-text-muted mb-1">Threshold</label>
+                    <input
+                      type="number"
+                      value={waitPattern().pattern.streakThreshold}
+                      onInput={(e) =>
+                        updateWaitPattern({
+                          pattern: {
+                            ...waitPattern().pattern,
+                            streakThreshold: parseFloat(e.currentTarget.value) || 2,
+                          },
+                        })
+                      }
+                      class="w-full bg-bg-secondary text-white font-mono px-2 py-1 rounded border border-border text-sm text-center"
+                      min="1.5"
+                      max="5"
+                      step="0.5"
+                      disabled={botState().active}
+                    />
+                  </div>
+                </div>
+                <p class="text-[10px] text-text-muted">
+                  Espera {waitPattern().pattern.minStreakLength} rodadas abaixo de {waitPattern().pattern.streakThreshold}x
+                </p>
+              </div>
+
+              {/* Betting Config */}
+              <div class="space-y-2">
+                <div class="text-xs text-text-muted font-medium">Aposta</div>
+                <div class="grid grid-cols-2 gap-2">
+                  <div>
+                    <label class="block text-[10px] text-text-muted mb-1">Target</label>
+                    <input
+                      type="number"
+                      value={waitPattern().betting.targetMultiplier}
+                      onInput={(e) =>
+                        updateWaitPattern({
+                          betting: {
+                            ...waitPattern().betting,
+                            targetMultiplier: parseFloat(e.currentTarget.value) || 2,
+                          },
+                        })
+                      }
+                      class="w-full bg-bg-secondary text-white font-mono px-2 py-1 rounded border border-border text-sm text-center"
+                      min="1.5"
+                      max="5"
+                      step="0.5"
+                      disabled={botState().active}
+                    />
+                  </div>
+                  <div>
+                    <label class="block text-[10px] text-text-muted mb-1">Valor Base</label>
+                    <input
+                      type="number"
+                      value={waitPattern().betting.baseBetAmount}
+                      onInput={(e) =>
+                        updateWaitPattern({
+                          betting: {
+                            ...waitPattern().betting,
+                            baseBetAmount: parseFloat(e.currentTarget.value) || 2,
+                          },
+                        })
+                      }
+                      class="w-full bg-bg-secondary text-white font-mono px-2 py-1 rounded border border-border text-sm text-center"
+                      min="1"
+                      step="0.5"
+                      disabled={botState().active}
+                    />
+                  </div>
+                </div>
+
+                {/* Double on Pattern */}
+                <div class="flex items-center justify-between p-2 bg-bg-secondary rounded">
+                  <div>
+                    <span class="text-xs text-text-secondary">Dobrar no padrão</span>
+                    <p class="text-[10px] text-text-muted">Dobrar aposta quando padrão detectado</p>
+                  </div>
+                  <button
+                    class={cn(
+                      'w-9 h-5 rounded-full transition-colors relative',
+                      waitPattern().betting.doubleBetOnPattern ? 'bg-cyan' : 'bg-bg-tertiary'
+                    )}
+                    onClick={() =>
+                      updateWaitPattern({
+                        betting: {
+                          ...waitPattern().betting,
+                          doubleBetOnPattern: !waitPattern().betting.doubleBetOnPattern,
+                        },
+                      })
+                    }
+                    disabled={botState().active}
+                  >
+                    <span
+                      class={cn(
+                        'absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-all',
+                        waitPattern().betting.doubleBetOnPattern && 'left-4'
+                      )}
+                    />
+                  </button>
+                </div>
+              </div>
+
+              {/* Risk Config */}
+              <div class="space-y-2">
+                <div class="text-xs text-text-muted font-medium">Gerenciamento de Risco</div>
+                <div class="grid grid-cols-2 gap-2">
+                  <div>
+                    <label class="block text-[10px] text-text-muted mb-1">Stop Loss %</label>
+                    <input
+                      type="number"
+                      value={waitPattern().risk.stopLossPercent}
+                      onInput={(e) =>
+                        updateWaitPattern({
+                          risk: {
+                            ...waitPattern().risk,
+                            stopLossPercent: parseInt(e.currentTarget.value) || 50,
+                          },
+                        })
+                      }
+                      class="w-full bg-bg-secondary text-white font-mono px-2 py-1 rounded border border-border text-sm text-center"
+                      min="10"
+                      max="90"
+                      disabled={botState().active}
+                    />
+                  </div>
+                  <div>
+                    <label class="block text-[10px] text-text-muted mb-1">Max Perdas Seguidas</label>
+                    <input
+                      type="number"
+                      value={waitPattern().risk.maxConsecutiveLosses}
+                      onInput={(e) =>
+                        updateWaitPattern({
+                          risk: {
+                            ...waitPattern().risk,
+                            maxConsecutiveLosses: parseInt(e.currentTarget.value) || 5,
+                          },
+                        })
+                      }
+                      class="w-full bg-bg-secondary text-white font-mono px-2 py-1 rounded border border-border text-sm text-center"
+                      min="2"
+                      max="10"
                       disabled={botState().active}
                     />
                   </div>

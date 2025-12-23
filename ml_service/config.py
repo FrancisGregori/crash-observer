@@ -54,6 +54,7 @@ MODEL_VERSION = "v1.0.0"
 
 # Model file names
 MODEL_FILES = {
+    "gt_1_5x": "model_gt_1_5x.joblib",
     "gt_2x": "model_gt_2x.joblib",
     "gt_3x": "model_gt_3x.joblib",
     "gt_4x": "model_gt_4x.joblib",
@@ -76,7 +77,7 @@ WINDOW_SIZES = [20, 50, 100]
 SEQUENCE_LENGTH = 20
 
 # Thresholds for counting events
-MULTIPLIER_THRESHOLDS = [2.0, 3.0, 4.0, 5.0, 7.0, 10.0]
+MULTIPLIER_THRESHOLDS = [1.5, 2.0, 3.0, 4.0, 5.0, 7.0, 10.0]
 
 # Early crash threshold (multiplier <= this value is considered early crash)
 EARLY_CRASH_THRESHOLD = 1.20

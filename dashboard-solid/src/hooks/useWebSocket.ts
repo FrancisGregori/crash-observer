@@ -7,6 +7,7 @@ import {
 } from '../stores/connection';
 import { processNewRound, fetchStats, fetchHourlyAnalysis, fetchHouseProfit, fetchAdvancedStats } from '../stores/rounds';
 import { setMLPrediction, setMLConnected } from '../stores/ml';
+import { setSequenceIndicatorState, type SequenceIndicatorState } from '../stores/sequence';
 import { resolveBet as resolveSimulatorBet } from '../stores/simulator';
 import type { RoundData, MLPrediction } from '../types';
 
@@ -73,6 +74,15 @@ function handleMessage(event: MessageEvent) {
       case 'game_state':
         console.log('[WS] Game state:', data);
         break;
+
+      case 'sequence_signal': {
+        const signalData = data as SequenceIndicatorState;
+        setSequenceIndicatorState(signalData);
+        if (signalData.hasSignal && signalData.currentSignal) {
+          console.log(`[WS] Sequence signal: ${signalData.currentSignal.strength} - ${signalData.currentSignal.consecutiveLows} lows`);
+        }
+        break;
+      }
 
       default:
         console.log(`[WS] Mensagem não tratada: ${type}`, data);

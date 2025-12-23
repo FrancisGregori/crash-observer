@@ -22,6 +22,7 @@ export const BotStatusBar: Component<BotStatusBarProps> = (props) => {
   const getStatusText = () => {
     if (isLoading()) return 'Iniciando...';
     if (!botState().active) return 'Inativo';
+    if (riskState().insufficientBalanceTriggered) return 'Saldo Insuficiente';
     if (riskState().stopLossTriggered) return 'Stop Loss';
     if (riskState().takeProfitTriggered) return 'Take Profit';
     if (riskState().isPaused) return `Pausado (${riskState().pauseRoundsRemaining})`;
@@ -32,6 +33,7 @@ export const BotStatusBar: Component<BotStatusBarProps> = (props) => {
   const getStatusColor = () => {
     if (isLoading()) return 'text-cyan';
     if (!botState().active) return 'text-text-muted';
+    if (riskState().insufficientBalanceTriggered) return 'text-red';
     if (riskState().stopLossTriggered) return 'text-red';
     if (riskState().takeProfitTriggered) return 'text-green';
     if (riskState().isPaused) return 'text-orange';

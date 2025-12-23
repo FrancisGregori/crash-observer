@@ -8,6 +8,7 @@ import type {
   BotHistoryItem,
   MLPrediction,
 } from '../types';
+import type { SequenceSignal } from '../stores/sequence';
 import { calculateStreak, checkFavorability, calculateMomentum } from './analysis';
 import { calculateSuccessRates } from './statistics';
 import { makeStrategyDecision } from './strategyLogic';
@@ -18,7 +19,8 @@ export function makeBotDecision(
   botState: BotState,
   config: BotConfig,
   riskState: BotRiskState,
-  mlPrediction?: MLPrediction | null
+  mlPrediction?: MLPrediction | null,
+  sequenceSignal?: SequenceSignal | null
 ): BotDecision {
   // Use the new strategy system
   const strategyResult = makeStrategyDecision(
@@ -26,7 +28,8 @@ export function makeBotDecision(
     botState,
     config,
     riskState,
-    mlPrediction
+    mlPrediction,
+    sequenceSignal
   );
 
   // If strategy says don't bet, return early

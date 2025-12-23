@@ -1,7 +1,65 @@
 import { Component, Show, For, createMemo } from 'solid-js';
 import { mlStore } from '../../stores/ml';
-import { formatPercent } from '../../lib/format';
 import { cn } from '../../lib/utils';
+
+// Mini donut chart component
+const MiniDonut: Component<{
+  value: number;
+  label: string;
+  color: string;
+  size?: number;
+}> = (props) => {
+  const size = () => props.size ?? 48;
+  const strokeWidth = 3;
+  const radius = 15.915;
+
+  const getColorClass = () => {
+    switch (props.color) {
+      case 'green': return 'text-green';
+      case 'cyan': return 'text-cyan';
+      case 'yellow': return 'text-yellow';
+      case 'orange': return 'text-orange';
+      case 'red': return 'text-red';
+      case 'purple': return 'text-purple';
+      default: return 'text-accent';
+    }
+  };
+
+  return (
+    <div class="flex flex-col items-center">
+      <div class="relative" style={{ width: `${size()}px`, height: `${size()}px` }}>
+        <svg class="w-full h-full transform -rotate-90" viewBox="0 0 36 36">
+          <circle
+            cx="18"
+            cy="18"
+            r={radius}
+            fill="none"
+            stroke="currentColor"
+            stroke-width={strokeWidth}
+            class="text-bg-secondary"
+          />
+          <circle
+            cx="18"
+            cy="18"
+            r={radius}
+            fill="none"
+            stroke="currentColor"
+            stroke-width={strokeWidth}
+            stroke-dasharray={`${props.value} 100`}
+            stroke-linecap="round"
+            class={getColorClass()}
+          />
+        </svg>
+        <div class="absolute inset-0 flex items-center justify-center">
+          <span class={cn('text-sm font-bold', getColorClass())}>
+            {Math.round(props.value)}%
+          </span>
+        </div>
+      </div>
+      <span class={cn('text-xs font-medium mt-1.5', getColorClass())}>{props.label}</span>
+    </div>
+  );
+};
 
 export const MLPredictionsCard: Component = () => {
   const probabilities = createMemo(() => {
@@ -9,11 +67,18 @@ export const MLPredictionsCard: Component = () => {
     if (!pred) return [];
 
     return [
-      { threshold: '≥2x', probability: pred.prob_gt_2x * 100, color: 'green' },
-      { threshold: '≥3x', probability: pred.prob_gt_3x * 100, color: 'cyan' },
-      { threshold: '≥5x', probability: pred.prob_gt_5x * 100, color: 'yellow' },
-      { threshold: '≥10x', probability: pred.prob_gt_10x * 100, color: 'orange' },
+      { threshold: '≥1.5x', probability: (pred.prob_gt_1_5x ?? 0) * 100, color: 'green' },
+      { threshold: '≥2x', probability: pred.prob_gt_2x * 100, color: 'cyan' },
+      { threshold: '≥3x', probability: pred.prob_gt_3x * 100, color: 'yellow' },
+      { threshold: '≥5x', probability: pred.prob_gt_5x * 100, color: 'orange' },
+      { threshold: '≥10x', probability: pred.prob_gt_10x * 100, color: 'red' },
     ];
+  });
+
+  const confidence = createMemo(() => {
+    const pred = mlStore.prediction;
+    if (!pred) return 0;
+    return pred.prob_gt_2x * 100;
   });
 
   const riskIndicators = createMemo(() => {
@@ -21,9 +86,8 @@ export const MLPredictionsCard: Component = () => {
     if (!pred) return [];
 
     return [
-      { name: 'Confiança', value: pred.prob_gt_2x * 100, isConfidence: true },
-      { name: 'Crash Precoce', value: pred.prob_early_crash * 100, isConfidence: false },
-      { name: 'Seq. Perdas', value: pred.prob_high_loss_streak * 100, isConfidence: false },
+      { name: 'Crash Precoce', value: pred.prob_early_crash * 100, isRisk: true },
+      { name: 'Seq. Perdas', value: pred.prob_high_loss_streak * 100, isRisk: true },
     ];
   });
 
@@ -39,26 +103,6 @@ export const MLPredictionsCard: Component = () => {
     }
     return 'wait';
   });
-
-  const getBarColor = (color: string) => {
-    switch (color) {
-      case 'green': return 'bg-green';
-      case 'cyan': return 'bg-cyan';
-      case 'yellow': return 'bg-yellow';
-      case 'orange': return 'bg-orange';
-      default: return 'bg-accent';
-    }
-  };
-
-  const getTextColor = (color: string) => {
-    switch (color) {
-      case 'green': return 'text-green';
-      case 'cyan': return 'text-cyan';
-      case 'yellow': return 'text-yellow';
-      case 'orange': return 'text-orange';
-      default: return 'text-accent';
-    }
-  };
 
   const getDecisionColor = (dec: string) => {
     switch (dec) {
@@ -86,7 +130,7 @@ export const MLPredictionsCard: Component = () => {
 
   return (
     <div class="card">
-      <div class="flex items-center justify-between mb-4">
+      <div class="flex items-center justify-between mb-3">
         <h2 class="text-sm font-semibold text-text-secondary uppercase tracking-wider">
           Predições ML
         </h2>
@@ -101,14 +145,14 @@ export const MLPredictionsCard: Component = () => {
       <Show
         when={mlStore.prediction}
         fallback={
-          <div class="text-center py-8 text-text-muted">
-            <div class="text-4xl mb-3">🤖</div>
-            <p class="text-sm font-medium">Aguardando predições...</p>
-            <p class="text-xs mt-1 opacity-60">(Requer ML Service + Redis)</p>
+          <div class="text-center py-6 text-text-muted">
+            <div class="text-3xl mb-2">🤖</div>
+            <p class="text-xs font-medium">Aguardando predições...</p>
+            <p class="text-[10px] mt-1 opacity-60">(Requer ML Service + Redis)</p>
           </div>
         }
       >
-        <div class="space-y-4">
+        <div>
           {/* Compact Decision - inline */}
           <div class={cn(
             'flex items-center justify-between p-2 rounded-lg border',
@@ -125,53 +169,43 @@ export const MLPredictionsCard: Component = () => {
             </span>
           </div>
 
-          {/* Probability Bars */}
-          <div class="space-y-3">
+          {/* Probability Donuts - Grid */}
+          <div class="grid grid-cols-5 gap-3 mt-6 pb-4">
             <For each={probabilities()}>
               {(prob) => (
-                <div>
-                  <div class="flex justify-between items-center mb-1.5">
-                    <span class="text-sm font-medium text-text-secondary">{prob.threshold}</span>
-                    <span class={cn('text-lg font-bold font-mono', getTextColor(prob.color))}>
-                      {formatPercent(prob.probability)}
-                    </span>
-                  </div>
-                  <div class="h-3 bg-bg-tertiary rounded-full overflow-hidden">
-                    <div
-                      class={cn('h-full rounded-full transition-all duration-500', getBarColor(prob.color))}
-                      style={{ width: `${prob.probability}%` }}
-                    />
-                  </div>
-                </div>
+                <MiniDonut
+                  value={prob.probability}
+                  label={prob.threshold}
+                  color={prob.color}
+                  size={72}
+                />
               )}
             </For>
           </div>
 
-          {/* Risk Indicators */}
-          <div class="p-3 bg-bg-secondary rounded-lg">
-            <div class="text-xs text-text-muted mb-2 uppercase tracking-wider">Indicadores</div>
-            <div class="grid grid-cols-3 gap-2">
-              <For each={riskIndicators()}>
-                {(indicator) => (
-                  <div class="text-center">
-                    <div class="text-[10px] text-text-muted mb-0.5">{indicator.name}</div>
-                    <div class={cn(
-                      'text-base font-bold font-mono',
-                      indicator.isConfidence
-                        ? (indicator.value >= 50 ? 'text-green' : indicator.value >= 40 ? 'text-yellow' : 'text-red')
-                        : (indicator.value > 35 ? 'text-red' : indicator.value > 25 ? 'text-yellow' : 'text-green')
-                    )}>
-                      {formatPercent(indicator.value)}
-                    </div>
-                  </div>
-                )}
-              </For>
-            </div>
+          {/* Confidence + Risk Indicators */}
+          <div class="flex justify-center gap-10 pt-5 border-t border-white/5">
+            <MiniDonut
+              value={confidence()}
+              label="Confiança"
+              color={confidence() >= 50 ? 'green' : confidence() >= 40 ? 'yellow' : 'red'}
+              size={68}
+            />
+            <For each={riskIndicators()}>
+              {(indicator) => (
+                <MiniDonut
+                  value={indicator.value}
+                  label={indicator.name}
+                  color={indicator.value > 35 ? 'red' : indicator.value > 25 ? 'yellow' : 'green'}
+                  size={68}
+                />
+              )}
+            </For>
           </div>
 
           {/* Model Info */}
-          <div class="text-xs text-text-muted text-center pt-2 border-t border-white/5">
-            Modelo: {mlStore.prediction?.model_version}
+          <div class="text-[10px] text-text-muted text-center pt-1">
+            v{mlStore.prediction?.model_version}
           </div>
         </div>
       </Show>

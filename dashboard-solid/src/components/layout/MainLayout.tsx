@@ -99,7 +99,7 @@ export const MainLayout: Component = () => {
 
       {/* Right Column - Simulator & Bots - Fixed position with internal scroll */}
       <Show when={visibilityStore.simulator || visibilityStore.bots}>
-        <div class="w-[520px] shrink-0 border-l border-white/10 bg-bg-primary flex flex-col h-full">
+        <div class="w-[620px] shrink-0 border-l border-white/10 bg-bg-primary flex flex-col h-full">
           <div class="flex-1 overflow-y-auto p-4 space-y-4">
             <Show when={visibilityStore.simulator}>
               <SimulatorPanel />

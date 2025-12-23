@@ -3,7 +3,9 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { insertRound } from '../database.js';
 import * as liveBetting from '../liveBetting.js';
-import { broadcastRound, broadcastBettingPhase } from './websocket.js';
+import { broadcastRound, broadcastBettingPhase, broadcastSignal } from './websocket.js';
+import * as wsCapture from './wsCapture.js';
+import * as sequenceIndicator from './sequenceIndicator.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -263,6 +265,16 @@ export async function startGameWatcher() {
 
     context = await chromium.launchPersistentContext(userDataDir, launchOptions);
     page = await context.newPage();
+  }
+
+  // Configurar captura de WebSocket via CDP ANTES de navegar
+  // para capturar a conexão WebSocket quando ela for criada
+  console.log('[GameWatcher] Configurando captura de WebSocket...');
+  try {
+    await wsCapture.setupWSCapture(page);
+    console.log('[GameWatcher] ✅ Captura de WebSocket configurada');
+  } catch (err) {
+    console.log('[GameWatcher] ⚠️ Falha ao configurar captura de WebSocket:', err.message);
   }
 
   console.log('[GameWatcher] Navegando para:', GAME_URL);
@@ -603,7 +615,24 @@ export async function startGameWatcher() {
     try {
       const id = insertRound(round);
       round.id = id;
-      console.log(`[DB] Rodada #${id} salva com sucesso! (${source})`);
+
+      // Special highlighting for 1x crashes (very important for ML training)
+      if (multiplier <= 1.05) {
+        // ANSI color codes for terminal
+        const RED_BG = '\x1b[41m';
+        const WHITE = '\x1b[37m';
+        const BOLD = '\x1b[1m';
+        const RESET = '\x1b[0m';
+        const YELLOW = '\x1b[33m';
+
+        console.log('');
+        console.log(`${RED_BG}${WHITE}${BOLD}  ⚠️  CRASH 1x DETECTADO!  ⚠️  ${RESET}`);
+        console.log(`${RED_BG}${WHITE}${BOLD}  Rodada #${id} | Multiplicador: ${multiplier.toFixed(2)}x  ${RESET}`);
+        console.log(`${YELLOW}  Apostadores: ${betCount} | Apostado: ${totalBet.toFixed(2)} | Fonte: ${source}${RESET}`);
+        console.log('');
+      } else {
+        console.log(`[DB] Rodada #${id} salva com sucesso! (${source}) - ${multiplier.toFixed(2)}x`);
+      }
 
       lastSavedMultiplier = multiplier;
       lastSaveTime = now;
@@ -611,6 +640,25 @@ export async function startGameWatcher() {
 
       // Broadcast via WebSocket
       broadcastRound(round);
+
+      // Atualizar indicador de sequência
+      const indicatorState = sequenceIndicator.addCrash(multiplier);
+      if (indicatorState.hasSignal) {
+        const signal = indicatorState.currentSignal;
+        const CYAN = '\x1b[36m';
+        const YELLOW = '\x1b[33m';
+        const RESET = '\x1b[0m';
+        const BOLD = '\x1b[1m';
+
+        console.log('');
+        console.log(`${CYAN}${BOLD}  ⚡ SINAL DE SEQUÊNCIA DETECTADO!  ${RESET}`);
+        console.log(`${YELLOW}  Força: ${signal.strength} | Baixas consecutivas: ${signal.consecutiveLows}${RESET}`);
+        console.log(`${YELLOW}  Prob. >=5x: ${(signal.probabilities.gte5x * 100).toFixed(0)}% | Alvo recomendado: ${signal.recommendedTarget}x${RESET}`);
+        console.log('');
+
+        // Broadcast sinal via WebSocket
+        broadcastSignal(indicatorState);
+      }
 
       return true;
     } catch (err) {
@@ -853,6 +901,7 @@ export async function startGameWatcher() {
   return {
     context,
     page,
+    getWSStats: wsCapture.getWSStats,
     cleanup: () => {
       clearInterval(pollInterval);
       clearInterval(authErrorCheckInterval);
@@ -880,8 +929,12 @@ export async function stopGameWatcher(watcherResult) {
   }
 }
 
+// Exportar indicador de sequência para acesso externo
+export { sequenceIndicator };
+
 export default {
   startGameWatcher,
   stopGameWatcher,
-  getGameState
+  getGameState,
+  sequenceIndicator
 };

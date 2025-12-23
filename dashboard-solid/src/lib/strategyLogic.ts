@@ -1,6 +1,7 @@
 /**
  * Strategy Logic - Flexible decision making system for bots
  * Supports ML-only, Rules-only, and Hybrid modes
+ * Now also supports Sequence Signal integration
  */
 
 import type {
@@ -14,8 +15,11 @@ import type {
   RulesStrategyConfig,
   HybridConfig,
   BreakevenProfitConfig,
+  WaitPatternConfig,
+  ConservativeConfig,
   StrategyDecisionResult,
 } from '../types';
+import type { SequenceSignal } from '../stores/sequence';
 import { calculateStreak, checkFavorability, calculateMomentum } from './analysis';
 
 // ====== ML Strategy Decision ======
@@ -443,13 +447,241 @@ export function makeBreakevenProfitDecision(
   };
 }
 
+// ====== Wait Pattern Strategy Decision ======
+// Waits for X consecutive rounds below threshold before betting
+export function makeWaitPatternDecision(
+  rounds: RoundData[],
+  config: WaitPatternConfig,
+  riskState: BotRiskState,
+  consecutiveWins: number,
+  consecutiveLosses: number
+): {
+  shouldBet: boolean;
+  betAmount: number;
+  targetCashout: number;
+  reasons: string[];
+} {
+  const reasons: string[] = [];
+
+  // Not enough data
+  if (rounds.length < config.pattern.minStreakLength) {
+    return {
+      shouldBet: false,
+      betAmount: config.betting.baseBetAmount,
+      targetCashout: config.betting.targetMultiplier,
+      reasons: ['WaitPattern: Dados insuficientes'],
+    };
+  }
+
+  // Check risk conditions
+  if (riskState.stopLossTriggered) {
+    return {
+      shouldBet: false,
+      betAmount: config.betting.baseBetAmount,
+      targetCashout: config.betting.targetMultiplier,
+      reasons: ['WaitPattern: Stop loss atingido'],
+    };
+  }
+
+  // Check consecutive losses pause
+  if (consecutiveLosses >= config.risk.maxConsecutiveLosses) {
+    return {
+      shouldBet: false,
+      betAmount: config.betting.baseBetAmount,
+      targetCashout: config.betting.targetMultiplier,
+      reasons: [`WaitPattern: Pausado após ${consecutiveLosses} perdas consecutivas`],
+    };
+  }
+
+  // Count consecutive rounds below threshold
+  let streak = 0;
+  for (let i = rounds.length - 1; i >= 0; i--) {
+    if (rounds[i].multiplier < config.pattern.streakThreshold) {
+      streak++;
+    } else {
+      break;
+    }
+  }
+
+  // Check if pattern detected
+  if (streak >= config.pattern.minStreakLength) {
+    let betAmount = config.betting.baseBetAmount;
+
+    // Double bet on pattern if configured
+    if (config.betting.doubleBetOnPattern) {
+      betAmount = Math.min(
+        config.betting.baseBetAmount * 2,
+        config.betting.baseBetAmount * config.betting.maxBetMultiplier
+      );
+      reasons.push(`WaitPattern: Aposta dobrada (padrão detectado)`);
+    }
+
+    reasons.push(`WaitPattern: Padrão detectado! ${streak} rodadas abaixo de ${config.pattern.streakThreshold}x`);
+
+    return {
+      shouldBet: true,
+      betAmount,
+      targetCashout: config.betting.targetMultiplier,
+      reasons,
+    };
+  }
+
+  reasons.push(`WaitPattern: Aguardando padrão (${streak}/${config.pattern.minStreakLength} rodadas)`);
+
+  return {
+    shouldBet: false,
+    betAmount: config.betting.baseBetAmount,
+    targetCashout: config.betting.targetMultiplier,
+    reasons,
+  };
+}
+
+// ====== Conservative Strategy Decision ======
+// Simple low-target strategy with optional progression
+export function makeConservativeDecision(
+  rounds: RoundData[],
+  config: ConservativeConfig,
+  riskState: BotRiskState,
+  consecutiveWins: number,
+  consecutiveLosses: number,
+  skipRoundsRemaining: number
+): {
+  shouldBet: boolean;
+  betAmount: number;
+  targetCashout: number;
+  reasons: string[];
+} {
+  const reasons: string[] = [];
+
+  // Check risk conditions
+  if (riskState.stopLossTriggered) {
+    return {
+      shouldBet: false,
+      betAmount: config.betting.baseBetAmount,
+      targetCashout: config.betting.targetMultiplier,
+      reasons: ['Conservative: Stop loss atingido'],
+    };
+  }
+
+  if (riskState.takeProfitTriggered) {
+    return {
+      shouldBet: false,
+      betAmount: config.betting.baseBetAmount,
+      targetCashout: config.betting.targetMultiplier,
+      reasons: ['Conservative: Take profit atingido'],
+    };
+  }
+
+  // Skip rounds after loss if configured
+  if (skipRoundsRemaining > 0) {
+    return {
+      shouldBet: false,
+      betAmount: config.betting.baseBetAmount,
+      targetCashout: config.betting.targetMultiplier,
+      reasons: [`Conservative: Pulando ${skipRoundsRemaining} rodada(s)`],
+    };
+  }
+
+  // If not betting every round, check pattern
+  if (!config.betting.betEveryRound && config.pattern.enabled) {
+    let streak = 0;
+    for (let i = rounds.length - 1; i >= 0; i--) {
+      if (rounds[i].multiplier < config.pattern.streakThreshold) {
+        streak++;
+      } else {
+        break;
+      }
+    }
+
+    if (streak < config.pattern.minStreakLength) {
+      return {
+        shouldBet: false,
+        betAmount: config.betting.baseBetAmount,
+        targetCashout: config.betting.targetMultiplier,
+        reasons: [`Conservative: Aguardando padrão (${streak}/${config.pattern.minStreakLength})`],
+      };
+    }
+    reasons.push(`Conservative: Padrão detectado (${streak} rodadas)`);
+  }
+
+  // Calculate bet amount with progression
+  let betAmount = config.betting.baseBetAmount;
+
+  if (config.progression.enabled) {
+    if (consecutiveWins >= config.progression.increaseAfterWins) {
+      // Calculate progression multiplier
+      const progressionSteps = Math.floor(consecutiveWins / config.progression.increaseAfterWins);
+      const progressionMultiplier = Math.min(
+        Math.pow(config.progression.progressionFactor, progressionSteps),
+        config.progression.maxBetMultiplier
+      );
+      betAmount = config.betting.baseBetAmount * progressionMultiplier;
+      reasons.push(`Conservative: Progressão ${progressionMultiplier.toFixed(1)}x (${consecutiveWins} wins)`);
+    }
+  }
+
+  reasons.push(`Conservative: Apostando R$${betAmount.toFixed(2)} em ${config.betting.targetMultiplier}x`);
+
+  return {
+    shouldBet: true,
+    betAmount,
+    targetCashout: config.betting.targetMultiplier,
+    reasons,
+  };
+}
+
+// ====== Sequence Signal Decision Enhancement ======
+export function applySequenceSignal(
+  baseResult: StrategyDecisionResult,
+  sequenceSignal: SequenceSignal | null | undefined
+): StrategyDecisionResult {
+  if (!sequenceSignal) {
+    return baseResult;
+  }
+
+  const result = { ...baseResult, reasons: [...baseResult.reasons] };
+
+  // Add sequence signal info to reasons
+  result.reasons.push(`📊 Sinal de sequência: ${sequenceSignal.strength} (${sequenceSignal.consecutiveLows} baixas)`);
+
+  // If base decision was not to bet, sequence signal can override
+  if (!result.shouldBet && sequenceSignal.strength === 'STRONG') {
+    result.shouldBet = true;
+    result.reasons.push('📈 Sinal FORTE ativou aposta');
+  }
+
+  // Boost confidence based on signal strength
+  if (sequenceSignal.strength === 'STRONG') {
+    result.confidence = Math.min(result.confidence + 0.15, 0.85);
+    result.betMultiplier = Math.min(result.betMultiplier * 1.3, 2.0);
+    result.reasons.push('💪 Multiplicador aumentado por sinal forte');
+  } else if (sequenceSignal.strength === 'MODERATE') {
+    result.confidence = Math.min(result.confidence + 0.10, 0.75);
+    result.betMultiplier = Math.min(result.betMultiplier * 1.15, 1.5);
+  }
+
+  // Suggest target based on sequence probabilities
+  if (sequenceSignal.probabilities) {
+    if (sequenceSignal.probabilities.gte5x >= 0.35) {
+      result.targetCashout = Math.max(result.targetCashout, 5);
+      result.reasons.push(`🎯 Target 5x (prob ${(sequenceSignal.probabilities.gte5x * 100).toFixed(0)}%)`);
+    } else if (sequenceSignal.probabilities.gte3x >= 0.50) {
+      result.targetCashout = Math.max(result.targetCashout, 3);
+      result.reasons.push(`🎯 Target 3x (prob ${(sequenceSignal.probabilities.gte3x * 100).toFixed(0)}%)`);
+    }
+  }
+
+  return result;
+}
+
 // ====== Main Strategy Decision Function ======
 export function makeStrategyDecision(
   rounds: RoundData[],
   botState: BotState,
   config: BotConfig,
   riskState: BotRiskState,
-  mlPrediction?: MLPrediction | null
+  mlPrediction?: MLPrediction | null,
+  sequenceSignal?: SequenceSignal | null
 ): StrategyDecisionResult {
   const strategyConfig = config.strategy;
   const mode = strategyConfig.mode;
@@ -496,7 +728,7 @@ export function makeStrategyDecision(
       config.betAmount
     );
 
-    return {
+    const baseResult: StrategyDecisionResult = {
       shouldBet: mlResult.shouldBet,
       confidence: mlResult.confidence,
       betMultiplier: mlResult.betMultiplier,
@@ -510,6 +742,8 @@ export function makeStrategyDecision(
         reasons: mlResult.reasons,
       },
     };
+
+    return applySequenceSignal(baseResult, sequenceSignal);
   }
 
   // ====== Rules Only Mode ======
@@ -521,7 +755,7 @@ export function makeStrategyDecision(
       botState.adaptiveCycle
     );
 
-    return {
+    const baseResult: StrategyDecisionResult = {
       shouldBet: rulesResult.shouldBet,
       confidence: rulesResult.isHighOpportunity ? 0.7 : 0.5,
       betMultiplier: rulesResult.betMultiplier,
@@ -535,6 +769,8 @@ export function makeStrategyDecision(
         reasons: rulesResult.reasons,
       },
     };
+
+    return applySequenceSignal(baseResult, sequenceSignal);
   }
 
   // ====== Break-even + Profit Mode ======
@@ -545,7 +781,7 @@ export function makeStrategyDecision(
       config.betAmount
     );
 
-    return {
+    const baseResult: StrategyDecisionResult = {
       shouldBet: bepResult.shouldBet,
       confidence: bepResult.confidence,
       betMultiplier: bepResult.betMultiplier,
@@ -560,6 +796,53 @@ export function makeStrategyDecision(
         reasons: bepResult.reasons,
       },
     };
+
+    return applySequenceSignal(baseResult, sequenceSignal);
+  }
+
+  // ====== Wait Pattern Mode ======
+  if (mode === 'wait_pattern') {
+    const wpResult = makeWaitPatternDecision(
+      rounds,
+      strategyConfig.waitPattern,
+      riskState,
+      riskState.consecutiveWins || 0,
+      riskState.consecutiveLosses || 0
+    );
+
+    const baseResult: StrategyDecisionResult = {
+      shouldBet: wpResult.shouldBet,
+      confidence: wpResult.shouldBet ? 0.6 : 0.3,
+      betMultiplier: wpResult.betAmount / config.betAmount,
+      targetCashout: wpResult.targetCashout,
+      reasons: wpResult.reasons,
+      source: 'wait_pattern',
+    };
+
+    return applySequenceSignal(baseResult, sequenceSignal);
+  }
+
+  // ====== Conservative Mode ======
+  if (mode === 'conservative') {
+    const consResult = makeConservativeDecision(
+      rounds,
+      strategyConfig.conservative,
+      riskState,
+      riskState.consecutiveWins || 0,
+      riskState.consecutiveLosses || 0,
+      riskState.pauseRoundsRemaining || 0
+    );
+
+    const baseResult: StrategyDecisionResult = {
+      shouldBet: consResult.shouldBet,
+      confidence: consResult.shouldBet ? 0.65 : 0.3,
+      betMultiplier: consResult.betAmount / config.betAmount,
+      targetCashout: consResult.targetCashout,
+      reasons: consResult.reasons,
+      source: 'conservative',
+    };
+
+    return applySequenceSignal(baseResult, sequenceSignal);
   }
 
   // ====== Hybrid Mode ======
@@ -582,7 +865,7 @@ export function makeStrategyDecision(
     strategyConfig.hybrid
   );
 
-  return {
+  const baseResult: StrategyDecisionResult = {
     shouldBet: combined.shouldBet,
     confidence: combined.confidence,
     betMultiplier: combined.betMultiplier,
@@ -602,4 +885,6 @@ export function makeStrategyDecision(
       reasons: rulesResult.reasons,
     },
   };
+
+  return applySequenceSignal(baseResult, sequenceSignal);
 }

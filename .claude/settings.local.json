@@ -28,7 +28,12 @@
       "WebFetch(domain:www.solid-ui.com)",
       "Bash(npx tsc:*)",
       "Bash(grep:*)",
-      "Bash(npm run build:*)"
+      "Bash(npm run build:*)",
+      "Bash(python:*)",
+      "WebFetch(domain:gamscdn.com)",
+      "Bash(timeout 60 node:*)",
+      "Bash(node:*)",
+      "Bash(head:*)"
     ]
   }
 }

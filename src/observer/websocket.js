@@ -106,6 +106,14 @@ export function broadcastMLPrediction(prediction) {
 }
 
 /**
+ * Broadcast de sinal de sequência
+ */
+export function broadcastSignal(signalData) {
+  broadcast(WS_MESSAGE_TYPES.SEQUENCE_SIGNAL, signalData);
+  console.log(`[WS] Sequence signal broadcast to ${clients.size} clients`);
+}
+
+/**
  * Retorna o número de clientes conectados
  */
 export function getClientCount() {
@@ -119,5 +127,6 @@ export default {
   broadcastLiveBetEvent,
   broadcastBettingPhase,
   broadcastMLPrediction,
+  broadcastSignal,
   getClientCount
 };

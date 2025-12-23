@@ -5,7 +5,6 @@ export { BotBalanceManager } from './BotBalanceManager';
 export { BotDecisionBox } from './BotDecisionBox';
 export { BotActiveBet } from './BotActiveBet';
 export { BotStatsGrid } from './BotStatsGrid';
-export { BotHistory } from './BotHistory';
 export { BotConfig } from './BotConfig';
 export { BotPanel } from './BotPanel';
 export { BotContainer } from './BotContainer';

@@ -4,6 +4,7 @@ export interface MLPrediction {
   generated_at: string;
   features_window_start_round: number;
   features_window_end_round: number;
+  prob_gt_1_5x: number;
   prob_gt_2x: number;
   prob_gt_3x: number;
   prob_gt_4x: number;
