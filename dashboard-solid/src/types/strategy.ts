@@ -37,7 +37,10 @@ export interface MLStrategyConfig {
       target2x: number;  // If prob_gt_2x > this, target 2x
       target3x: number;  // If prob_gt_3x > this, target 3x
       target5x: number;  // If prob_gt_5x > this, target 5x
+      target7x: number;  // If estimated prob_gt_7x > this, target 7x
+      target8x: number;  // If estimated prob_gt_8x > this, target 8x
       target10x: number; // If prob_gt_10x > this, target 10x
+      target12x: number; // If estimated prob_gt_12x > this, target 12x
     };
   };
 
@@ -155,7 +158,9 @@ export interface BreakevenProfitConfig {
       target3x: number;   // Min probability to aim for 3x
       target5x: number;   // Min probability to aim for 5x
       target7x: number;   // Min probability to aim for 7x
+      target8x: number;   // Min probability to aim for 8x
       target10x: number;  // Min probability to aim for 10x
+      target12x: number;  // Min probability to aim for 12x
       target15x: number;  // Min probability to aim for 15x
       target20x: number;  // Min probability to aim for 20x
     };
@@ -272,8 +277,11 @@ export function createDefaultMLStrategyConfig(): MLStrategyConfig {
       probabilityThresholds: {
         target2x: 0.55,
         target3x: 0.45,
-        target5x: 0.35,
-        target10x: 0.25,
+        target5x: 0.38,  // Mais conservador para 5x
+        target7x: 0.33,  // Target 7x
+        target8x: 0.31,  // Target 8x
+        target10x: 0.28, // Target 10x
+        target12x: 0.25, // Target 12x (para quando tiver alta confiança)
       },
     },
     blockConditions: {
@@ -355,11 +363,13 @@ export function createDefaultBreakevenProfitConfig(): BreakevenProfitConfig {
       availableTargets: [3, 5, 7, 10, 15, 20],
       targetThresholds: {
         target3x: 0.50,  // 50% prob to aim for 3x
-        target5x: 0.40,  // 40% prob to aim for 5x
-        target7x: 0.30,  // 30% prob to aim for 7x
-        target10x: 0.25, // 25% prob to aim for 10x
-        target15x: 0.18, // 18% prob to aim for 15x
-        target20x: 0.12, // 12% prob to aim for 20x
+        target5x: 0.42,  // 42% prob to aim for 5x
+        target7x: 0.36,  // 36% prob to aim for 7x
+        target8x: 0.33,  // 33% prob to aim for 8x
+        target10x: 0.30, // 30% prob to aim for 10x
+        target12x: 0.26, // 26% prob to aim for 12x
+        target15x: 0.22, // 22% prob to aim for 15x
+        target20x: 0.18, // 18% prob to aim for 20x
       },
     },
     skipConditions: {

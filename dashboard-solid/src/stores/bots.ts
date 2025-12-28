@@ -29,6 +29,10 @@ import {
   fetchPlatformBalance,
   enableLiveBetting,
   randomizeCashout,
+  saveBotBet,
+  startBotSession,
+  endBotSession,
+  type BotBetRecord,
 } from '../lib/api';
 import { getCurrentSignal, type SequenceSignal } from './sequence';
 
@@ -217,6 +221,7 @@ export function setBotBalance(botId: BotId, balance: number) {
 
 export async function setBotActive(botId: BotId, active: boolean): Promise<boolean | string> {
   const botState = state[botId].state;
+  const botConfig = state[botId].config;
 
   // If activating
   if (active && !botState.active) {
@@ -248,13 +253,30 @@ export async function setBotActive(botId: BotId, active: boolean): Promise<boole
       totalWagered: 0,
       totalProfit: 0,
     });
+    // Clear history for new session (old history is preserved in DB)
+    setState(botId, 'state', 'history', []);
+
+    // Start new session in database
+    try {
+      const sessionResult = await startBotSession({
+        botId,
+        initialBalance: state[botId].state.balance,
+        strategyMode: botConfig.strategy?.mode || 'unknown',
+      });
+      if (sessionResult.success && sessionResult.sessionId) {
+        setState(botId, 'state', 'dbSessionId', sessionResult.sessionId);
+        console.log(`[Bot ${botId}] Sessão iniciada no banco: ID ${sessionResult.sessionId}`);
+      }
+    } catch (err) {
+      console.error(`[Bot ${botId}] Erro ao iniciar sessão no banco:`, err);
+    }
   }
 
   // If deactivating and was active
   if (!active && botState.active) {
-    // Save session record
+    // Save session record (local + database)
     if (botState.sessionStartTime) {
-      saveSessionRecord(botId);
+      await saveSessionRecord(botId);
     }
 
     // If was in live mode, disable live betting in backend
@@ -262,6 +284,9 @@ export async function setBotActive(botId: BotId, active: boolean): Promise<boole
       console.log(`[Bot ${botId}] Disabling live betting in backend...`);
       await enableLiveBetting(false);
     }
+
+    // Clear dbSessionId
+    setState(botId, 'state', 'dbSessionId', null);
   }
 
   setState(botId, 'state', 'active', active);
@@ -485,6 +510,30 @@ export async function processBotRound(
       // Add to history
       addBotHistoryItem(botId, historyItem);
 
+      // Save bet to database for ML training
+      const betRecord: BotBetRecord = {
+        bot_id: botId,
+        session_id: botState.dbSessionId || undefined,
+        round_id: round.id,
+        timestamp: bet.timestamp,
+        bet_amount: bet.amount,
+        cashout1: bet.cashout1,
+        cashout2: bet.cashout2,
+        round_multiplier: round.multiplier,
+        won1,
+        won2,
+        profit,
+        balance_after: botState.balance,
+        is_high_opportunity: bet.isHighOpportunity,
+        strategy_mode: botConfig.strategy?.mode || 'unknown',
+        ml_confidence: mlPrediction?.prob_gt_2x || undefined,
+      };
+
+      // Fire and forget - don't wait for response
+      saveBotBet(betRecord).catch((err) => {
+        console.error(`[Bot ${botId}] Failed to save bet to DB:`, err);
+      });
+
       // Update risk state (won = at least one bet won for streak tracking)
       const won = won1 || won2;
       updateRiskStateAfterBet(botId, won, profit);
@@ -656,7 +705,7 @@ function updateRiskStateAfterBet(botId: BotId, won: boolean, profit: number) {
 // ====== Session Record Functions ======
 
 // Create and save a session record
-function saveSessionRecord(botId: BotId) {
+async function saveSessionRecord(botId: BotId) {
   const botState = state[botId].state;
   const botConfig = state[botId].config;
 
@@ -690,6 +739,28 @@ function saveSessionRecord(botId: BotId) {
   // Add to session history (keep last 50 sessions)
   setState('sessionHistory', (prev) => [sessionRecord, ...prev].slice(0, 50));
   saveSessionHistory(state.sessionHistory);
+
+  // End session in database
+  if (botState.dbSessionId) {
+    try {
+      await endBotSession({
+        sessionId: botState.dbSessionId,
+        finalBalance: botState.balance,
+        stats: {
+          min_balance: botState.minBalance,
+          max_balance: botState.maxBalance,
+          total_bets: botState.stats.totalBets,
+          wins: botState.stats.wins,
+          partials: botState.stats.partials,
+          losses: botState.stats.losses,
+          total_profit: botState.stats.totalProfit,
+        },
+      });
+      console.log(`[Bot ${botId}] Sessão ${botState.dbSessionId} finalizada no banco`);
+    } catch (err) {
+      console.error(`[Bot ${botId}] Erro ao finalizar sessão no banco:`, err);
+    }
+  }
 
   console.log(`[Bot ${botId}] Sessão salva:`, {
     duration: formatDuration(durationMs),
@@ -793,4 +864,191 @@ export function duplicateConfig(configId: string, newName: string) {
   saveSavedConfigs(state.savedConfigs);
 
   return duplicated.id;
+}
+
+// ====== ML Training Data Export Functions ======
+
+// Export bet history for ML training
+// Returns data that can help ML learn from bot decisions and outcomes
+export interface BotBetExport {
+  roundId: number;
+  timestamp: number;
+  betAmount: number;
+  cashout1: number;
+  cashout2: number;
+  roundMultiplier: number;
+  won1: boolean;
+  won2: boolean;
+  profit: number;
+  balanceAfter: number;
+  isHighOpportunity: boolean;
+}
+
+export interface BotTrainingExport {
+  botId: BotId;
+  exportTime: number;
+  totalBets: number;
+  wins: number;
+  partials: number;
+  losses: number;
+  winRate: number;
+  partialRate: number;
+  avgProfit: number;
+  maxDrawdown: number;
+  maxProfit: number;
+  volatility: number;
+  bets: BotBetExport[];
+  sessions: BotSessionRecord[];
+}
+
+// Calculate volatility (standard deviation of profits)
+function calculateVolatility(bets: BotHistoryItem[]): number {
+  if (bets.length < 2) return 0;
+  const profits = bets.map(b => b.profit);
+  const mean = profits.reduce((a, b) => a + b, 0) / profits.length;
+  const squaredDiffs = profits.map(p => Math.pow(p - mean, 2));
+  return Math.sqrt(squaredDiffs.reduce((a, b) => a + b, 0) / profits.length);
+}
+
+// Calculate max drawdown from bet history
+function calculateMaxDrawdown(bets: BotHistoryItem[]): number {
+  if (bets.length === 0) return 0;
+
+  let maxDrawdown = 0;
+  let peak = bets[bets.length - 1]?.balance || 0;
+
+  // Iterate from oldest to newest (bets are stored newest first)
+  for (let i = bets.length - 1; i >= 0; i--) {
+    const balance = bets[i].balance;
+    if (balance > peak) {
+      peak = balance;
+    }
+    const drawdown = (peak - balance) / peak;
+    if (drawdown > maxDrawdown) {
+      maxDrawdown = drawdown;
+    }
+  }
+
+  return maxDrawdown * 100; // Return as percentage
+}
+
+// Export bot data for ML training
+export function exportBotDataForML(botId: BotId): BotTrainingExport {
+  const botState = state[botId].state;
+  const stats = botState.stats;
+
+  // Calculate rates
+  const totalBets = stats.totalBets || 1;
+  const winRate = (stats.wins / totalBets) * 100;
+  const partialRate = (stats.partials / totalBets) * 100;
+  const avgProfit = stats.totalProfit / totalBets;
+
+  // Calculate volatility and drawdown
+  const volatility = calculateVolatility(botState.history);
+  const maxDrawdown = calculateMaxDrawdown(botState.history);
+
+  // Find max profit in session
+  let maxProfit = 0;
+  let runningBalance = botState.initialBalance;
+  for (let i = botState.history.length - 1; i >= 0; i--) {
+    runningBalance += botState.history[i].profit;
+    const profit = runningBalance - botState.initialBalance;
+    if (profit > maxProfit) maxProfit = profit;
+  }
+
+  // Convert history to export format
+  const bets: BotBetExport[] = botState.history.map((h, idx) => ({
+    roundId: h.id,
+    timestamp: h.timestamp,
+    betAmount: h.amount,
+    cashout1: h.cashout1,
+    cashout2: h.cashout2,
+    roundMultiplier: h.roundMultiplier,
+    won1: h.won1,
+    won2: h.won2,
+    profit: h.profit,
+    balanceAfter: h.balance,
+    isHighOpportunity: h.isHighOpportunity,
+  }));
+
+  return {
+    botId,
+    exportTime: Date.now(),
+    totalBets: stats.totalBets,
+    wins: stats.wins,
+    partials: stats.partials,
+    losses: stats.losses,
+    winRate,
+    partialRate,
+    avgProfit,
+    maxDrawdown,
+    maxProfit,
+    volatility,
+    bets,
+    sessions: state.sessionHistory.filter(s => s.botId === botId),
+  };
+}
+
+// Export all bot data to JSON file for ML training
+export function downloadBotDataForML(botId: BotId) {
+  const data = exportBotDataForML(botId);
+  const json = JSON.stringify(data, null, 2);
+  const blob = new Blob([json], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `bot_${botId}_training_data_${Date.now()}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+
+  console.log(`[${botId}] Training data exported: ${data.totalBets} bets`);
+}
+
+// Get current bot performance metrics (for real-time decisions)
+export function getBotPerformanceMetrics(botId: BotId) {
+  const botState = state[botId].state;
+  const stats = botState.stats;
+  const history = botState.history;
+
+  // Recent performance (last 20 bets)
+  const recentBets = history.slice(0, 20);
+  const recentWins = recentBets.filter(b => b.won1 && b.won2).length;
+  const recentPartials = recentBets.filter(b => b.won1 && !b.won2).length;
+  const recentLosses = recentBets.filter(b => !b.won1).length;
+  const recentProfit = recentBets.reduce((sum, b) => sum + b.profit, 0);
+
+  // Calculate streaks
+  let currentLossStreak = 0;
+  let currentWinStreak = 0;
+  for (const bet of history) {
+    if (!bet.won1) {
+      if (currentWinStreak > 0) break;
+      currentLossStreak++;
+    } else {
+      if (currentLossStreak > 0) break;
+      currentWinStreak++;
+    }
+  }
+
+  // Current drawdown
+  const currentDrawdown = botState.maxBalance > 0
+    ? ((botState.maxBalance - botState.balance) / botState.maxBalance) * 100
+    : 0;
+
+  return {
+    totalBets: stats.totalBets,
+    winRate: stats.totalBets > 0 ? (stats.wins / stats.totalBets) * 100 : 0,
+    recentWinRate: recentBets.length > 0 ? (recentWins / recentBets.length) * 100 : 0,
+    recentProfit,
+    currentLossStreak,
+    currentWinStreak,
+    currentDrawdown,
+    volatility: calculateVolatility(history),
+    isInDrawdown: currentDrawdown > 15, // More than 15% drawdown
+    isHotStreak: currentWinStreak >= 3,
+    isColdStreak: currentLossStreak >= 3,
+  };
 }

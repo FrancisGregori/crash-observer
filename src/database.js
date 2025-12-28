@@ -1073,6 +1073,330 @@ export function mergeArchive(name) {
   }
 }
 
+// ========== Bot History Functions ==========
+
+/**
+ * Inicializa as tabelas de histórico do bot
+ */
+export function initBotTables() {
+  if (!db) {
+    console.error('[DB] Banco de dados não inicializado');
+    return false;
+  }
+
+  db.exec(`
+    -- Tabela de apostas do bot
+    CREATE TABLE IF NOT EXISTS bot_bets (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      bot_id TEXT NOT NULL,
+      session_id INTEGER,
+      round_id INTEGER,
+      timestamp INTEGER NOT NULL,
+      bet_amount REAL NOT NULL,
+      cashout1 REAL NOT NULL,
+      cashout2 REAL NOT NULL,
+      round_multiplier REAL NOT NULL,
+      won1 INTEGER NOT NULL DEFAULT 0,
+      won2 INTEGER NOT NULL DEFAULT 0,
+      profit REAL NOT NULL,
+      balance_after REAL NOT NULL,
+      is_high_opportunity INTEGER NOT NULL DEFAULT 0,
+      strategy_mode TEXT,
+      ml_confidence REAL,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (session_id) REFERENCES bot_sessions(id)
+    );
+
+    -- Tabela de sessões do bot
+    CREATE TABLE IF NOT EXISTS bot_sessions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      bot_id TEXT NOT NULL,
+      start_time INTEGER NOT NULL,
+      end_time INTEGER,
+      initial_balance REAL NOT NULL,
+      final_balance REAL,
+      min_balance REAL,
+      max_balance REAL,
+      total_bets INTEGER DEFAULT 0,
+      wins INTEGER DEFAULT 0,
+      partials INTEGER DEFAULT 0,
+      losses INTEGER DEFAULT 0,
+      total_profit REAL DEFAULT 0,
+      strategy_mode TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Índices para performance
+    CREATE INDEX IF NOT EXISTS idx_bot_bets_round_id ON bot_bets(round_id);
+    CREATE INDEX IF NOT EXISTS idx_bot_bets_timestamp ON bot_bets(timestamp);
+    CREATE INDEX IF NOT EXISTS idx_bot_bets_bot_id ON bot_bets(bot_id);
+    CREATE INDEX IF NOT EXISTS idx_bot_bets_session_id ON bot_bets(session_id);
+    CREATE INDEX IF NOT EXISTS idx_bot_sessions_bot_id ON bot_sessions(bot_id);
+  `);
+
+  // Adiciona coluna session_id se não existir (migração)
+  try {
+    db.exec(`ALTER TABLE bot_bets ADD COLUMN session_id INTEGER REFERENCES bot_sessions(id)`);
+    console.log('[DB] Coluna session_id adicionada a bot_bets');
+  } catch (e) {
+    // Coluna já existe - ok
+  }
+
+  // Índice para session_id (se não existir)
+  try {
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_bot_bets_session_id ON bot_bets(session_id)`);
+  } catch (e) {
+    // Índice já existe - ok
+  }
+
+  console.log('[DB] Tabelas de histórico do bot inicializadas');
+  return true;
+}
+
+/**
+ * Insere uma aposta do bot no banco
+ */
+export function insertBotBet(bet) {
+  if (!db) return null;
+
+  const stmt = db.prepare(`
+    INSERT INTO bot_bets (
+      bot_id, session_id, round_id, timestamp, bet_amount, cashout1, cashout2,
+      round_multiplier, won1, won2, profit, balance_after,
+      is_high_opportunity, strategy_mode, ml_confidence
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  const result = stmt.run(
+    bet.bot_id,
+    bet.session_id || null,
+    bet.round_id || null,
+    bet.timestamp,
+    bet.bet_amount,
+    bet.cashout1,
+    bet.cashout2,
+    bet.round_multiplier,
+    bet.won1 ? 1 : 0,
+    bet.won2 ? 1 : 0,
+    bet.profit,
+    bet.balance_after,
+    bet.is_high_opportunity ? 1 : 0,
+    bet.strategy_mode || null,
+    bet.ml_confidence || null
+  );
+
+  console.log(`[DB] Aposta do bot ${bet.bot_id} salva: ${bet.profit > 0 ? 'GANHO' : 'PERDA'} R$${bet.profit.toFixed(2)}`);
+  return result.lastInsertRowid;
+}
+
+/**
+ * Retorna histórico de apostas do bot
+ */
+export function getBotBets(botId = null, limit = 100) {
+  if (!db) return [];
+
+  let query = 'SELECT * FROM bot_bets';
+  const params = [];
+
+  if (botId) {
+    query += ' WHERE bot_id = ?';
+    params.push(botId);
+  }
+
+  query += ' ORDER BY timestamp DESC LIMIT ?';
+  params.push(limit);
+
+  const stmt = db.prepare(query);
+  return stmt.all(...params);
+}
+
+/**
+ * Retorna todas as apostas do bot para treinamento do ML
+ */
+export function getAllBotBetsForTraining() {
+  if (!db) return [];
+
+  const stmt = db.prepare(`
+    SELECT
+      bb.*,
+      r.betCount as round_bet_count,
+      r.totalBet as round_total_bet,
+      r.totalWin as round_total_win
+    FROM bot_bets bb
+    LEFT JOIN rounds r ON bb.round_id = r.id
+    ORDER BY bb.timestamp ASC
+  `);
+
+  return stmt.all();
+}
+
+/**
+ * Retorna estatísticas das apostas do bot
+ */
+export function getBotStats(botId = null) {
+  if (!db) return null;
+
+  let whereClause = '';
+  const params = [];
+
+  if (botId) {
+    whereClause = 'WHERE bot_id = ?';
+    params.push(botId);
+  }
+
+  const stats = db.prepare(`
+    SELECT
+      COUNT(*) as total_bets,
+      SUM(CASE WHEN won1 = 1 AND won2 = 1 THEN 1 ELSE 0 END) as wins,
+      SUM(CASE WHEN won1 = 1 AND won2 = 0 THEN 1 ELSE 0 END) as partials,
+      SUM(CASE WHEN won1 = 0 THEN 1 ELSE 0 END) as losses,
+      SUM(profit) as total_profit,
+      AVG(profit) as avg_profit,
+      SUM(bet_amount * 2) as total_wagered,
+      MIN(balance_after) as min_balance,
+      MAX(balance_after) as max_balance
+    FROM bot_bets ${whereClause}
+  `).get(...params);
+
+  // Estatísticas por target
+  const targetStats = db.prepare(`
+    SELECT
+      CASE
+        WHEN cashout2 <= 2.5 THEN '2x'
+        WHEN cashout2 <= 3.5 THEN '3x'
+        WHEN cashout2 <= 5.5 THEN '5x'
+        WHEN cashout2 <= 7.5 THEN '7x'
+        WHEN cashout2 <= 8.5 THEN '8x'
+        WHEN cashout2 <= 10.5 THEN '10x'
+        WHEN cashout2 <= 12.5 THEN '12x'
+        WHEN cashout2 <= 15.5 THEN '15x'
+        ELSE '20x+'
+      END as target_category,
+      COUNT(*) as count,
+      SUM(CASE WHEN won2 = 1 THEN 1 ELSE 0 END) as wins,
+      SUM(CASE WHEN won1 = 1 THEN 1 ELSE 0 END) as partial_or_better,
+      SUM(profit) as total_profit,
+      AVG(profit) as avg_profit
+    FROM bot_bets ${whereClause}
+    GROUP BY target_category
+    ORDER BY cashout2
+  `).all(...params);
+
+  return {
+    ...stats,
+    win_rate: stats.total_bets > 0 ? (stats.wins / stats.total_bets * 100) : 0,
+    partial_rate: stats.total_bets > 0 ? (stats.partials / stats.total_bets * 100) : 0,
+    target_stats: targetStats
+  };
+}
+
+/**
+ * Inicia uma nova sessão do bot
+ */
+export function startBotSession(botId, initialBalance, strategyMode = null) {
+  if (!db) return null;
+
+  const stmt = db.prepare(`
+    INSERT INTO bot_sessions (bot_id, start_time, initial_balance, strategy_mode)
+    VALUES (?, ?, ?, ?)
+  `);
+
+  const result = stmt.run(botId, Date.now(), initialBalance, strategyMode);
+  console.log(`[DB] Sessão do bot ${botId} iniciada: ID ${result.lastInsertRowid}`);
+  return result.lastInsertRowid;
+}
+
+/**
+ * Finaliza uma sessão do bot
+ */
+export function endBotSession(sessionId, finalBalance, stats) {
+  if (!db) return false;
+
+  const stmt = db.prepare(`
+    UPDATE bot_sessions SET
+      end_time = ?,
+      final_balance = ?,
+      min_balance = ?,
+      max_balance = ?,
+      total_bets = ?,
+      wins = ?,
+      partials = ?,
+      losses = ?,
+      total_profit = ?
+    WHERE id = ?
+  `);
+
+  stmt.run(
+    Date.now(),
+    finalBalance,
+    stats.min_balance,
+    stats.max_balance,
+    stats.total_bets,
+    stats.wins,
+    stats.partials,
+    stats.losses,
+    stats.total_profit,
+    sessionId
+  );
+
+  console.log(`[DB] Sessão ${sessionId} finalizada: R$${stats.total_profit.toFixed(2)}`);
+  return true;
+}
+
+/**
+ * Retorna sessões do bot
+ */
+export function getBotSessions(botId = null, limit = 50) {
+  if (!db) return [];
+
+  let query = 'SELECT * FROM bot_sessions';
+  const params = [];
+
+  if (botId) {
+    query += ' WHERE bot_id = ?';
+    params.push(botId);
+  }
+
+  query += ' ORDER BY start_time DESC LIMIT ?';
+  params.push(limit);
+
+  const stmt = db.prepare(query);
+  return stmt.all(...params);
+}
+
+/**
+ * Retorna análise de performance do bot por período
+ */
+export function getBotPerformanceByPeriod(botId = null, periodHours = 24) {
+  if (!db) return null;
+
+  const cutoffTime = Date.now() - (periodHours * 60 * 60 * 1000);
+
+  let whereClause = 'WHERE timestamp >= ?';
+  const params = [cutoffTime];
+
+  if (botId) {
+    whereClause += ' AND bot_id = ?';
+    params.push(botId);
+  }
+
+  const performance = db.prepare(`
+    SELECT
+      strftime('%Y-%m-%d %H:00', datetime(timestamp/1000, 'unixepoch')) as hour,
+      COUNT(*) as bets,
+      SUM(CASE WHEN won2 = 1 THEN 1 ELSE 0 END) as wins,
+      SUM(profit) as profit,
+      AVG(ml_confidence) as avg_confidence
+    FROM bot_bets
+    ${whereClause}
+    GROUP BY hour
+    ORDER BY hour DESC
+  `).all(...params);
+
+  return performance;
+}
+
 export default {
   initDatabase,
   insertRound,
@@ -1089,5 +1413,15 @@ export default {
   restoreArchive,
   resetDatabase,
   deleteArchive,
-  mergeArchive
+  mergeArchive,
+  // Bot history functions
+  initBotTables,
+  insertBotBet,
+  getBotBets,
+  getAllBotBetsForTraining,
+  getBotStats,
+  startBotSession,
+  endBotSession,
+  getBotSessions,
+  getBotPerformanceByPeriod
 };

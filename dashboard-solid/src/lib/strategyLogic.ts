@@ -92,26 +92,90 @@ export function makeMLDecision(
     }
   }
 
-  // Determine target based on probabilities
+  // Determine target based on probabilities and confidence
   if (config.targetSelection.method === 'probability_based') {
     const thresholds = config.targetSelection.probabilityThresholds;
 
-    // Check from highest to lowest target
-    if (mlPrediction.prob_gt_10x >= thresholds.target10x) {
-      suggestedTarget = 10;
-      reasons.push(`ML: Target 10x (prob ${(mlPrediction.prob_gt_10x * 100).toFixed(0)}%)`);
-    } else if (mlPrediction.prob_gt_5x >= thresholds.target5x) {
-      suggestedTarget = 5;
-      reasons.push(`ML: Target 5x (prob ${(mlPrediction.prob_gt_5x * 100).toFixed(0)}%)`);
-    } else if (mlPrediction.prob_gt_3x >= thresholds.target3x) {
-      suggestedTarget = 3;
-      reasons.push(`ML: Target 3x (prob ${(mlPrediction.prob_gt_3x * 100).toFixed(0)}%)`);
-    } else if (mlPrediction.prob_gt_2x >= thresholds.target2x) {
+    // NOVA LÓGICA: Escolha de target baseada em CONFIANÇA PROGRESSIVA
+    // A confiança (prob_gt_2x) determina o NÍVEL MÁXIMO de agressividade
+    // Isso evita sempre escolher 10x quando probabilidades estão levemente acima do threshold
+
+    // Estimate probabilities for targets we don't have direct predictions
+    const estimatedProb7x = (mlPrediction.prob_gt_5x * 0.4 + mlPrediction.prob_gt_10x * 0.6);
+    const estimatedProb8x = (mlPrediction.prob_gt_5x * 0.3 + mlPrediction.prob_gt_10x * 0.7);
+    const estimatedProb12x = mlPrediction.prob_gt_10x * 0.75;
+
+    // Determina o nível de confiança geral
+    const confidenceLevel = confidence;
+
+    // REGRA PROGRESSIVA:
+    // - Confiança baixa (< 0.45): máximo 2x (conservador)
+    // - Confiança média (0.45-0.52): máximo 3x
+    // - Confiança boa (0.52-0.58): máximo 5x
+    // - Confiança alta (0.58-0.65): máximo 7x ou 8x
+    // - Confiança muito alta (>= 0.65): pode ir para 10x ou 12x
+
+    if (confidenceLevel < 0.45) {
+      // Baixa confiança - ser conservador
       suggestedTarget = 2;
-      reasons.push(`ML: Target 2x (prob ${(mlPrediction.prob_gt_2x * 100).toFixed(0)}%)`);
+      reasons.push(`ML: Target conservador 2x (confiança ${(confidenceLevel * 100).toFixed(0)}%)`);
+    } else if (confidenceLevel < 0.52) {
+      // Confiança média - tentar 3x se probabilidade boa
+      if (mlPrediction.prob_gt_3x >= thresholds.target3x) {
+        suggestedTarget = 3;
+        reasons.push(`ML: Target 3x (prob ${(mlPrediction.prob_gt_3x * 100).toFixed(0)}%)`);
+      } else {
+        suggestedTarget = 2;
+        reasons.push(`ML: Target 2x (3x não atingiu threshold)`);
+      }
+    } else if (confidenceLevel < 0.58) {
+      // Confiança boa - pode ir até 5x
+      if (mlPrediction.prob_gt_5x >= thresholds.target5x) {
+        suggestedTarget = 5;
+        reasons.push(`ML: Target 5x (prob ${(mlPrediction.prob_gt_5x * 100).toFixed(0)}%)`);
+      } else if (mlPrediction.prob_gt_3x >= thresholds.target3x) {
+        suggestedTarget = 3;
+        reasons.push(`ML: Target 3x (5x não atingiu, prob 3x=${(mlPrediction.prob_gt_3x * 100).toFixed(0)}%)`);
+      } else {
+        suggestedTarget = 2;
+        reasons.push(`ML: Target 2x (fallback)`);
+      }
+    } else if (confidenceLevel < 0.65) {
+      // Confiança alta - pode ir até 7x ou 8x
+      if (estimatedProb8x >= thresholds.target8x) {
+        suggestedTarget = 8;
+        reasons.push(`ML: Target 8x (prob estimada ${(estimatedProb8x * 100).toFixed(0)}%)`);
+      } else if (estimatedProb7x >= thresholds.target7x) {
+        suggestedTarget = 7;
+        reasons.push(`ML: Target 7x (prob estimada ${(estimatedProb7x * 100).toFixed(0)}%)`);
+      } else if (mlPrediction.prob_gt_5x >= thresholds.target5x) {
+        suggestedTarget = 5;
+        reasons.push(`ML: Target 5x (fallback, prob ${(mlPrediction.prob_gt_5x * 100).toFixed(0)}%)`);
+      } else {
+        suggestedTarget = 3;
+        reasons.push(`ML: Target 3x (confiança alta mas probs baixas)`);
+      }
     } else {
-      suggestedTarget = 2;
-      reasons.push('ML: Target conservador 2x');
+      // Confiança muito alta (>= 0.65) - pode ir para targets altos
+      if (estimatedProb12x >= thresholds.target12x && mlPrediction.prob_gt_10x >= 0.40) {
+        suggestedTarget = 12;
+        reasons.push(`ML: Target 12x (prob 10x=${(mlPrediction.prob_gt_10x * 100).toFixed(0)}%, confiança muito alta)`);
+      } else if (mlPrediction.prob_gt_10x >= thresholds.target10x && mlPrediction.prob_gt_10x >= 0.35) {
+        suggestedTarget = 10;
+        reasons.push(`ML: Target 10x (prob ${(mlPrediction.prob_gt_10x * 100).toFixed(0)}%, confiança muito alta)`);
+      } else if (estimatedProb8x >= thresholds.target8x) {
+        suggestedTarget = 8;
+        reasons.push(`ML: Target 8x (prob estimada ${(estimatedProb8x * 100).toFixed(0)}%)`);
+      } else if (estimatedProb7x >= thresholds.target7x) {
+        suggestedTarget = 7;
+        reasons.push(`ML: Target 7x (prob estimada ${(estimatedProb7x * 100).toFixed(0)}%)`);
+      } else if (mlPrediction.prob_gt_5x >= thresholds.target5x) {
+        suggestedTarget = 5;
+        reasons.push(`ML: Target 5x (prob ${(mlPrediction.prob_gt_5x * 100).toFixed(0)}%)`);
+      } else {
+        suggestedTarget = 3;
+        reasons.push(`ML: Target 3x (confiança muito alta mas probs moderadas)`);
+      }
     }
   } else if (config.targetSelection.method === 'fixed') {
     suggestedTarget = config.targetSelection.fixedTarget;
@@ -390,26 +454,41 @@ export function makeBreakevenProfitDecision(
   if (config.profit.useMLTarget) {
     const thresholds = config.profit.targetThresholds;
 
-    // Check from highest to lowest target
-    // We need to estimate probabilities for 7x, 15x, 20x based on available data
-    // prob_gt_10x can be used as a proxy - if high, higher targets are more likely
-    const estimatedProb15x = mlPrediction.prob_gt_10x * 0.6; // Approximate
-    const estimatedProb20x = mlPrediction.prob_gt_10x * 0.4; // Approximate
-    const estimatedProb7x = (mlPrediction.prob_gt_5x + mlPrediction.prob_gt_10x) / 2;
+    // Estimate probabilities for targets we don't have direct predictions
+    // Use weighted interpolation and conservative estimates for higher targets
+    const estimatedProb7x = (mlPrediction.prob_gt_5x * 0.4 + mlPrediction.prob_gt_10x * 0.6);
+    const estimatedProb8x = (mlPrediction.prob_gt_5x * 0.3 + mlPrediction.prob_gt_10x * 0.7);
+    const estimatedProb12x = mlPrediction.prob_gt_10x * 0.75;
+    const estimatedProb15x = mlPrediction.prob_gt_10x * 0.55;
+    const estimatedProb20x = mlPrediction.prob_gt_10x * 0.35;
 
-    if (estimatedProb20x >= thresholds.target20x) {
+    // LÓGICA PROGRESSIVA: Prioriza targets mais alcançáveis (5x -> 7x -> 8x -> 10x -> 12x)
+    // Só vai para targets muito altos se tiver probabilidades excepcionais
+
+    // Targets muito agressivos (só se probabilidade excepcional)
+    if (estimatedProb20x >= thresholds.target20x && mlPrediction.prob_gt_10x >= 0.42) {
       profitCashout = 20;
-      reasons.push(`BE+P: Target lucro 20x (prob estimada ${(estimatedProb20x * 100).toFixed(0)}%)`);
-    } else if (estimatedProb15x >= thresholds.target15x) {
+      reasons.push(`BE+P: Target lucro 20x (prob 10x=${(mlPrediction.prob_gt_10x * 100).toFixed(0)}%)`);
+    } else if (estimatedProb15x >= thresholds.target15x && mlPrediction.prob_gt_10x >= 0.38) {
       profitCashout = 15;
-      reasons.push(`BE+P: Target lucro 15x (prob estimada ${(estimatedProb15x * 100).toFixed(0)}%)`);
-    } else if (mlPrediction.prob_gt_10x >= thresholds.target10x) {
+      reasons.push(`BE+P: Target lucro 15x (prob 10x=${(mlPrediction.prob_gt_10x * 100).toFixed(0)}%)`);
+    } else if (estimatedProb12x >= thresholds.target12x && mlPrediction.prob_gt_10x >= 0.35) {
+      // 12x quando prob de 10x está alta
+      profitCashout = 12;
+      reasons.push(`BE+P: Target lucro 12x (prob 10x=${(mlPrediction.prob_gt_10x * 100).toFixed(0)}%)`);
+    } else if (mlPrediction.prob_gt_10x >= thresholds.target10x && mlPrediction.prob_gt_10x >= 0.32) {
       profitCashout = 10;
       reasons.push(`BE+P: Target lucro 10x (prob ${(mlPrediction.prob_gt_10x * 100).toFixed(0)}%)`);
+    } else if (estimatedProb8x >= thresholds.target8x) {
+      // 8x como meio termo entre 7x e 10x
+      profitCashout = 8;
+      reasons.push(`BE+P: Target lucro 8x (prob estimada ${(estimatedProb8x * 100).toFixed(0)}%)`);
     } else if (estimatedProb7x >= thresholds.target7x) {
+      // 7x - target frequente e alcançável
       profitCashout = 7;
       reasons.push(`BE+P: Target lucro 7x (prob estimada ${(estimatedProb7x * 100).toFixed(0)}%)`);
     } else if (mlPrediction.prob_gt_5x >= thresholds.target5x) {
+      // 5x - target mais seguro e frequente
       profitCashout = 5;
       reasons.push(`BE+P: Target lucro 5x (prob ${(mlPrediction.prob_gt_5x * 100).toFixed(0)}%)`);
     } else if (mlPrediction.prob_gt_3x >= thresholds.target3x) {

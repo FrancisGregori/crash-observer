@@ -122,3 +122,132 @@ export function randomizeCashout(base: number, minOffset: number = 0.01, maxOffs
   const result = base + sign * offset;
   return Math.max(1.01, Math.round(result * 100) / 100);
 }
+
+// ========== Bot History API ==========
+
+export interface BotBetRecord {
+  bot_id: string;
+  session_id?: number;
+  round_id?: number;
+  timestamp: number;
+  bet_amount: number;
+  cashout1: number;
+  cashout2: number;
+  round_multiplier: number;
+  won1: boolean;
+  won2: boolean;
+  profit: number;
+  balance_after: number;
+  is_high_opportunity: boolean;
+  strategy_mode?: string;
+  ml_confidence?: number;
+}
+
+export interface BotSessionStart {
+  botId: string;
+  initialBalance: number;
+  strategyMode?: string;
+}
+
+export interface BotSessionEnd {
+  sessionId: number;
+  finalBalance: number;
+  stats: {
+    min_balance: number;
+    max_balance: number;
+    total_bets: number;
+    wins: number;
+    partials: number;
+    losses: number;
+    total_profit: number;
+  };
+}
+
+// Save bot bet to database
+export async function saveBotBet(bet: BotBetRecord): Promise<{ success: boolean; id?: number; error?: string }> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/bot/bet`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(bet),
+    });
+    return await response.json();
+  } catch (err) {
+    console.error('[API] Error saving bot bet:', err);
+    return { success: false, error: String(err) };
+  }
+}
+
+// Get bot betting history
+export async function getBotBets(botId?: string, limit: number = 100): Promise<{ success: boolean; bets?: BotBetRecord[]; error?: string }> {
+  try {
+    const params = new URLSearchParams();
+    if (botId) params.append('botId', botId);
+    params.append('limit', limit.toString());
+
+    const response = await fetch(`${API_BASE_URL}/api/bot/bets?${params}`);
+    return await response.json();
+  } catch (err) {
+    console.error('[API] Error fetching bot bets:', err);
+    return { success: false, error: String(err) };
+  }
+}
+
+// Get bot stats
+export async function getBotStats(botId?: string): Promise<{ success: boolean; stats?: any; error?: string }> {
+  try {
+    const params = new URLSearchParams();
+    if (botId) params.append('botId', botId);
+
+    const response = await fetch(`${API_BASE_URL}/api/bot/stats?${params}`);
+    return await response.json();
+  } catch (err) {
+    console.error('[API] Error fetching bot stats:', err);
+    return { success: false, error: String(err) };
+  }
+}
+
+// Start bot session
+export async function startBotSession(data: BotSessionStart): Promise<{ success: boolean; sessionId?: number; error?: string }> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/bot/session/start`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    return await response.json();
+  } catch (err) {
+    console.error('[API] Error starting bot session:', err);
+    return { success: false, error: String(err) };
+  }
+}
+
+// End bot session
+export async function endBotSession(data: BotSessionEnd): Promise<{ success: boolean; error?: string }> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/bot/session/end`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    return await response.json();
+  } catch (err) {
+    console.error('[API] Error ending bot session:', err);
+    return { success: false, error: String(err) };
+  }
+}
+
+// Get bot performance analysis
+export async function getBotPerformance(botId?: string, hours: number = 24): Promise<{ success: boolean; performance?: any[]; error?: string }> {
+  try {
+    const params = new URLSearchParams();
+    if (botId) params.append('botId', botId);
+    params.append('hours', hours.toString());
+
+    const response = await fetch(`${API_BASE_URL}/api/bot/performance?${params}`);
+    return await response.json();
+  } catch (err) {
+    console.error('[API] Error fetching bot performance:', err);
+    return { success: false, error: String(err) };
+  }
+}

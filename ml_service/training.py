@@ -45,9 +45,15 @@ from config import (
     TEST_RATIO,
     MIN_ROUNDS_FOR_TRAINING,
     XGBOOST_PARAMS,
+    XGBOOST_PARAMS_RARE_EVENTS,
     USE_CLASS_WEIGHTS,
 )
 from features import FeatureEngineer, LabelGenerator, create_training_dataset
+from bot_history_integration import (
+    BotHistoryAnalyzer,
+    get_bot_performance_features,
+    get_optimal_thresholds_from_history,
+)
 
 # Setup logging
 logging.basicConfig(
@@ -210,13 +216,20 @@ def train_single_model(
         scale_pos_weight = compute_scale_pos_weight(y_train)
         logger.info(f"  Class imbalance ratio: {scale_pos_weight:.2f}")
 
-    # Create model with configured parameters
-    params = XGBOOST_PARAMS.copy()
+    # Use special parameters for rare events (7x+, 10x+)
+    rare_event_labels = ["label_gt_7x", "label_gt_10x", "label_early_crash"]
+    if label_name in rare_event_labels:
+        params = XGBOOST_PARAMS_RARE_EVENTS.copy()
+        logger.info(f"  Using RARE EVENTS parameters for {label_name}")
+    else:
+        params = XGBOOST_PARAMS.copy()
+
     params["scale_pos_weight"] = scale_pos_weight
 
+    # Create model with configured parameters (early_stopping_rounds is in constructor)
     model = XGBClassifier(**params)
 
-    # Train with early stopping
+    # Train with eval set for early stopping
     model.fit(
         X_train,
         y_train,
@@ -232,6 +245,10 @@ def train_single_model(
     val_auc = roc_auc_score(y_val, val_pred) if len(np.unique(y_val)) > 1 else 0
 
     logger.info(f"  Train AUC: {train_auc:.4f}, Val AUC: {val_auc:.4f}")
+
+    # Log best iteration if early stopping was used
+    if hasattr(model, 'best_iteration') and model.best_iteration is not None:
+        logger.info(f"  Best iteration: {model.best_iteration}")
 
     return model
 
@@ -325,13 +342,16 @@ def save_model(model, scaler: StandardScaler, model_name: str) -> Path:
     return model_path
 
 
-def save_training_metadata(metrics: Dict, feature_names: list) -> None:
+def save_training_metadata(
+    metrics: Dict, feature_names: list, bot_analysis: Optional[Dict] = None
+) -> None:
     """
     Save training metadata and metrics to a JSON file.
 
     Args:
         metrics: Dictionary of all model metrics
         feature_names: List of feature names
+        bot_analysis: Optional bot history analysis data
     """
     metadata = {
         "model_version": MODEL_VERSION,
@@ -339,6 +359,10 @@ def save_training_metadata(metrics: Dict, feature_names: list) -> None:
         "feature_names": feature_names,
         "metrics": metrics,
     }
+
+    # Include bot analysis if available
+    if bot_analysis:
+        metadata["bot_analysis"] = bot_analysis
 
     metadata_path = MODELS_DIR / "training_metadata.json"
 
@@ -369,6 +393,43 @@ def run_training_pipeline(db_path: Path = DATABASE_PATH) -> Dict:
     logger.info("=" * 60)
     logger.info("Starting ML Training Pipeline")
     logger.info("=" * 60)
+
+    # 0. Analyze bot history (if available)
+    logger.info("\nAnalyzing bot betting history...")
+    bot_analysis = None
+    recommended_thresholds = {}
+    try:
+        analyzer = BotHistoryAnalyzer(db_path)
+        if analyzer.load_bot_history():
+            # Get performance analysis
+            target_perf = analyzer.analyze_target_performance()
+            recommended_thresholds = analyzer.get_optimal_thresholds()
+
+            logger.info(f"  Found {len(analyzer.bets_df)} bot bets in database")
+            logger.info("  Target performance from bot history:")
+            for target, stats in target_perf.items():
+                if stats['count'] >= 5:
+                    logger.info(
+                        f"    {target}: {stats['count']} bets, "
+                        f"{stats.get('success_rate', 0):.1f}% success, "
+                        f"R${stats['avg_profit']:.4f} avg profit"
+                    )
+
+            if recommended_thresholds:
+                logger.info("  Recommended thresholds based on bot performance:")
+                for target, threshold in sorted(recommended_thresholds.items()):
+                    logger.info(f"    {target}: {threshold:.2f}")
+
+            bot_analysis = {
+                'total_bets': len(analyzer.bets_df),
+                'target_performance': target_perf,
+                'recommended_thresholds': recommended_thresholds,
+            }
+            analyzer.close()
+        else:
+            logger.info("  No bot history found - will train without bot feedback")
+    except Exception as e:
+        logger.warning(f"  Could not analyze bot history: {e}")
 
     # 1. Load data
     df = load_rounds_from_sqlite(db_path)
@@ -469,8 +530,8 @@ def run_training_pipeline(db_path: Path = DATABASE_PATH) -> Dict:
     joblib.dump(scaler, scaler_path)
     logger.info(f"\nSaved feature scaler to {scaler_path}")
 
-    # 6. Save metadata
-    save_training_metadata(all_metrics, feature_names)
+    # 6. Save metadata (including bot analysis if available)
+    save_training_metadata(all_metrics, feature_names, bot_analysis)
 
     # Summary
     logger.info("\n" + "=" * 60)
@@ -478,6 +539,8 @@ def run_training_pipeline(db_path: Path = DATABASE_PATH) -> Dict:
     logger.info("=" * 60)
     logger.info(f"Trained {len(models)} models")
     logger.info(f"Models saved to: {MODELS_DIR}")
+    if bot_analysis:
+        logger.info(f"Bot history analysis: {bot_analysis['total_bets']} bets analyzed")
 
     return {
         "n_samples": len(X),
@@ -485,6 +548,7 @@ def run_training_pipeline(db_path: Path = DATABASE_PATH) -> Dict:
         "n_models": len(models),
         "metrics": all_metrics,
         "model_version": MODEL_VERSION,
+        "bot_analysis": bot_analysis,
     }
 
 

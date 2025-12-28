@@ -100,21 +100,33 @@ TEST_RATIO = 0.15
 # Minimum rounds needed for training
 MIN_ROUNDS_FOR_TRAINING = 1000
 
-# XGBoost parameters (tuned for imbalanced classification)
+# XGBoost parameters (tuned for imbalanced classification and stability)
 XGBOOST_PARAMS = {
-    "n_estimators": 200,
-    "max_depth": 6,
-    "learning_rate": 0.05,
-    "min_child_weight": 3,
-    "subsample": 0.8,
-    "colsample_bytree": 0.8,
-    "gamma": 0.1,
-    "reg_alpha": 0.1,
-    "reg_lambda": 1.0,
+    "n_estimators": 300,           # Mais árvores para melhor generalização
+    "max_depth": 5,                # Reduzido para evitar overfitting
+    "learning_rate": 0.03,         # Learning rate menor para convergência mais suave
+    "min_child_weight": 5,         # Aumentado para evitar overfitting em dados raros
+    "subsample": 0.75,             # Amostragem de dados
+    "colsample_bytree": 0.75,      # Amostragem de features
+    "colsample_bylevel": 0.8,      # Amostragem por nível
+    "gamma": 0.2,                  # Regularização mais forte
+    "reg_alpha": 0.5,              # L1 regularização
+    "reg_lambda": 2.0,             # L2 regularização mais forte
     "random_state": 42,
     "n_jobs": -1,
     "use_label_encoder": False,
-    "eval_metric": "logloss",
+    "eval_metric": "auc",          # AUC é melhor para classificação binária desbalanceada
+    "early_stopping_rounds": 30,   # Early stopping para evitar overfitting
+}
+
+# Parâmetros específicos para modelos de eventos raros (7x+, 10x+)
+XGBOOST_PARAMS_RARE_EVENTS = {
+    **XGBOOST_PARAMS,
+    "max_depth": 4,                # Mais raso para eventos raros
+    "min_child_weight": 10,        # Mais conservador
+    "learning_rate": 0.02,         # Mais lento
+    "n_estimators": 400,           # Mais árvores
+    "reg_lambda": 3.0,             # Regularização ainda mais forte
 }
 
 # Class weights for imbalanced targets

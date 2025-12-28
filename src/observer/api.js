@@ -1,6 +1,13 @@
 import express from 'express';
 import cors from 'cors';
-import { getLastRounds, getStats, getAllRounds, getLastRound, getHourlyAnalysis, getHouseProfitByPeriod, getAdvancedStats, archiveDatabase, listArchives, restoreArchive, resetDatabase, deleteArchive, mergeArchive } from '../database.js';
+import {
+  getLastRounds, getStats, getAllRounds, getLastRound, getHourlyAnalysis,
+  getHouseProfitByPeriod, getAdvancedStats, archiveDatabase, listArchives,
+  restoreArchive, resetDatabase, deleteArchive, mergeArchive,
+  // Bot history functions
+  initBotTables, insertBotBet, getBotBets, getAllBotBetsForTraining,
+  getBotStats, startBotSession, endBotSession, getBotSessions, getBotPerformanceByPeriod
+} from '../database.js';
 import * as liveBetting from '../liveBetting.js';
 import { broadcastLiveBetEvent } from './websocket.js';
 
@@ -378,10 +385,171 @@ app.post('/api/database/merge', (req, res) => {
   }
 });
 
+// ========== Bot History API ==========
+
+/**
+ * POST /api/bot/bet
+ * Salva uma aposta do bot no banco de dados
+ */
+app.post('/api/bot/bet', (req, res) => {
+  try {
+    const bet = req.body;
+
+    // Validação básica
+    if (!bet.bot_id || bet.bet_amount === undefined) {
+      return res.status(400).json({ success: false, error: 'Dados incompletos' });
+    }
+
+    const id = insertBotBet(bet);
+    res.json({ success: true, id });
+  } catch (err) {
+    console.error('[API] Erro ao salvar aposta do bot:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * GET /api/bot/bets
+ * Retorna histórico de apostas do bot
+ */
+app.get('/api/bot/bets', (req, res) => {
+  try {
+    const botId = req.query.botId || null;
+    const limit = parseInt(req.query.limit) || 100;
+    const bets = getBotBets(botId, limit);
+    res.json({ success: true, bets });
+  } catch (err) {
+    console.error('[API] Erro ao buscar apostas do bot:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * GET /api/bot/bets/training
+ * Retorna todas as apostas do bot para treinamento do ML
+ */
+app.get('/api/bot/bets/training', (req, res) => {
+  try {
+    const bets = getAllBotBetsForTraining();
+    res.json({ success: true, count: bets.length, bets });
+  } catch (err) {
+    console.error('[API] Erro ao buscar apostas para treinamento:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * GET /api/bot/stats
+ * Retorna estatísticas do bot
+ */
+app.get('/api/bot/stats', (req, res) => {
+  try {
+    const botId = req.query.botId || null;
+    const stats = getBotStats(botId);
+    res.json({ success: true, stats });
+  } catch (err) {
+    console.error('[API] Erro ao buscar estatísticas do bot:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/bot/session/start
+ * Inicia uma nova sessão do bot
+ */
+app.post('/api/bot/session/start', (req, res) => {
+  try {
+    const { botId, initialBalance, strategyMode } = req.body;
+
+    if (!botId || initialBalance === undefined) {
+      return res.status(400).json({ success: false, error: 'Dados incompletos' });
+    }
+
+    const sessionId = startBotSession(botId, initialBalance, strategyMode);
+    res.json({ success: true, sessionId });
+  } catch (err) {
+    console.error('[API] Erro ao iniciar sessão do bot:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/bot/session/end
+ * Finaliza uma sessão do bot
+ */
+app.post('/api/bot/session/end', (req, res) => {
+  try {
+    const { sessionId, finalBalance, stats } = req.body;
+
+    if (!sessionId) {
+      return res.status(400).json({ success: false, error: 'sessionId obrigatório' });
+    }
+
+    endBotSession(sessionId, finalBalance, stats);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[API] Erro ao finalizar sessão do bot:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * GET /api/bot/sessions
+ * Retorna sessões do bot
+ */
+app.get('/api/bot/sessions', (req, res) => {
+  try {
+    const botId = req.query.botId || null;
+    const limit = parseInt(req.query.limit) || 50;
+    const sessions = getBotSessions(botId, limit);
+    res.json({ success: true, sessions });
+  } catch (err) {
+    console.error('[API] Erro ao buscar sessões do bot:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * GET /api/bot/performance
+ * Retorna análise de performance do bot por período
+ */
+app.get('/api/bot/performance', (req, res) => {
+  try {
+    const botId = req.query.botId || null;
+    const periodHours = parseInt(req.query.hours) || 24;
+    const performance = getBotPerformanceByPeriod(botId, periodHours);
+    res.json({ success: true, performance });
+  } catch (err) {
+    console.error('[API] Erro ao buscar performance do bot:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/bot/init-tables
+ * Inicializa as tabelas do histórico do bot (se não existirem)
+ */
+app.post('/api/bot/init-tables', (req, res) => {
+  try {
+    initBotTables();
+    res.json({ success: true, message: 'Tabelas inicializadas' });
+  } catch (err) {
+    console.error('[API] Erro ao inicializar tabelas:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 /**
  * Inicia o servidor da API
  */
 export function startApiServer(port) {
+  // Inicializa tabelas do bot ao iniciar o servidor
+  try {
+    initBotTables();
+  } catch (err) {
+    console.error('[API] Erro ao inicializar tabelas do bot:', err);
+  }
+
   return new Promise((resolve) => {
     const server = app.listen(port, () => {
       console.log(`[API] Servidor REST iniciado na porta ${port}`);

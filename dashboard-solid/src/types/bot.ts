@@ -69,6 +69,7 @@ export interface BotState {
   lastRoundTime: number;
   adaptiveCycle: AdaptiveCycle;
   sessionStartTime: number | null; // When bot was started
+  dbSessionId: number | null; // Database session ID for tracking bets
 }
 
 // Safety First configuration - general parameter for all strategies
@@ -217,6 +218,7 @@ export function createDefaultBotState(botId: BotId): BotState {
       lastHitTarget: null,
     },
     sessionStartTime: null,
+    dbSessionId: null,
   };
 }
 
