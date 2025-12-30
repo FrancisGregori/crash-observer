@@ -1,15 +1,23 @@
 #!/bin/bash
 # Script de inicialização do Firefox na VPS
 
-set -e
-
 echo "=== Iniciando Firefox para Bet365 Observer ==="
 
 # Aguarda Xvfb estar pronto
-sleep 3
+echo "Aguardando Xvfb..."
+sleep 5
 
 # Define display
 export DISPLAY=:99
+export HOME=/root
+
+# Verifica se o display está funcionando
+if ! xdpyinfo -display :99 > /dev/null 2>&1; then
+    echo "ERRO: Display :99 não está disponível"
+    sleep 5
+    exit 1
+fi
+echo "Display :99 OK"
 
 # URL inicial
 INITIAL_URL="${INITIAL_URL:-https://casino.bet365.bet.br/play/AviatorNYX}"
@@ -34,15 +42,12 @@ echo "Preparando extensão para Docker..."
 
 # Instala a extensão no perfil
 PROFILE_DIR="/root/.mozilla/firefox/bet365.default-release"
-EXTENSION_DIR="/opt/extension"
 
-# Copia extensão para o perfil (método que funciona com Firefox)
+# Cria diretório do perfil se não existir
 mkdir -p "$PROFILE_DIR/extensions"
 
-# Para extensões não empacotadas, usa o diretório direto
-# O Firefox carrega de extensions/ se o nome for o ID da extensão
+# Copia extensão para o perfil
 cp -r /opt/extension "$PROFILE_DIR/extensions/bet365-observer@local"
-
 echo "Extensão copiada para o perfil"
 
 # Inicia Firefox

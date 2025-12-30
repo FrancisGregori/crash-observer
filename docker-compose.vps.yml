@@ -9,8 +9,6 @@
 #   - Dashboard: http://SEU_IP:3001
 #
 
-version: '3.8'
-
 services:
   # ===========================================
   # Observer Node.js - Processa dados do jogo
