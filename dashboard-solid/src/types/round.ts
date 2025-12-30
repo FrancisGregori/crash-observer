@@ -6,6 +6,18 @@ export interface RoundData {
   totalBet: number;
   totalWin: number;
   multiplier: number;
+  platform?: string; // Platform source (spinbetter, bet365, etc.)
+}
+
+// Platform configuration for display
+export const PLATFORM_LABELS: Record<string, string> = {
+  spinbetter: 'Spinbetter',
+  bet365: 'Bet365',
+};
+
+export function getPlatformLabel(platform?: string): string {
+  if (!platform) return 'Spinbetter'; // Default
+  return PLATFORM_LABELS[platform] || platform;
 }
 
 // Statistics calculated from rounds

@@ -212,10 +212,18 @@
         <!-- Tabela Detalhada -->
         <section class="table-section">
           <h2>Tabela Detalhada</h2>
-          <div class="history-controls">
-            <button class="btn active" data-limit="50">Últimas 50</button>
-            <button class="btn" data-limit="100">Últimas 100</button>
-            <button class="btn" data-limit="500">Últimas 500</button>
+          <div class="table-filters">
+            <div class="platform-controls">
+              <span class="filter-label">Plataforma:</span>
+              <button class="btn platform-btn active" data-platform="">Todas</button>
+              <button class="btn platform-btn" data-platform="spinbetter">Spinbetter</button>
+              <button class="btn platform-btn" data-platform="bet365">Bet365</button>
+            </div>
+            <div class="history-controls">
+              <button class="btn active" data-limit="50">Últimas 50</button>
+              <button class="btn" data-limit="100">Últimas 100</button>
+              <button class="btn" data-limit="500">Últimas 500</button>
+            </div>
           </div>
           <div class="table-wrapper">
             <table id="roundsTable">

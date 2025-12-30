@@ -1,6 +1,6 @@
 // API functions for live betting integration
 
-// In development, Vite proxy handles /api -> localhost:3001
+// In development, Vite proxy handles /api -> localhost:3002
 // In production, configure your server to route /api appropriately
 const API_BASE_URL = '';
 

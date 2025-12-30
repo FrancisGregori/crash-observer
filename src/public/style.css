@@ -609,10 +609,40 @@ section h2 {
   padding: 20px;
 }
 
+.table-filters {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.platform-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.filter-label {
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  margin-right: 4px;
+}
+
+.platform-btn[data-platform="spinbetter"].active {
+  background: #4CAF50;
+  color: white;
+}
+
+.platform-btn[data-platform="bet365"].active {
+  background: #FF9800;
+  color: white;
+}
+
 .history-controls {
   display: flex;
   gap: 8px;
-  margin-bottom: 12px;
 }
 
 .btn {

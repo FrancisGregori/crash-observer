@@ -1,0 +1,73 @@
+# Dockerfile para Firefox com Display Virtual + noVNC
+FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV DISPLAY=:99
+ENV VNC_PASSWORD=bet365observer
+
+# Instala dependencias
+RUN apt-get update && apt-get install -y \
+    firefox \
+    xvfb \
+    x11vnc \
+    novnc \
+    websockify \
+    supervisor \
+    pulseaudio \
+    dbus-x11 \
+    libgtk-3-0 \
+    libdbus-glib-1-2 \
+    libxt6 \
+    libasound2 \
+    wget \
+    curl \
+    unzip \
+    netcat-openbsd \
+    zip \
+    && rm -rf /var/lib/apt/lists/*
+
+# Cria diretórios
+RUN mkdir -p /root/.mozilla/firefox /opt/extension /var/log/supervisor
+
+# Copia a extensão
+COPY firefox-extension/ /opt/extension/
+
+# Script para preparar extensão
+COPY docker/prepare-extension.sh /opt/prepare-extension.sh
+RUN chmod +x /opt/prepare-extension.sh
+
+# Cria perfil Firefox com extensão pré-instalada
+RUN mkdir -p /root/.mozilla/firefox/bet365.default-release && \
+    echo '[Profile0]' > /root/.mozilla/firefox/profiles.ini && \
+    echo 'Name=default-release' >> /root/.mozilla/firefox/profiles.ini && \
+    echo 'IsRelative=1' >> /root/.mozilla/firefox/profiles.ini && \
+    echo 'Path=bet365.default-release' >> /root/.mozilla/firefox/profiles.ini && \
+    echo 'Default=1' >> /root/.mozilla/firefox/profiles.ini && \
+    echo '' >> /root/.mozilla/firefox/profiles.ini && \
+    echo '[General]' >> /root/.mozilla/firefox/profiles.ini && \
+    echo 'StartWithLastProfile=1' >> /root/.mozilla/firefox/profiles.ini
+
+# Configurações do Firefox para aceitar extensão não assinada
+RUN mkdir -p /root/.mozilla/firefox/bet365.default-release && \
+    echo 'user_pref("xpinstall.signatures.required", false);' > /root/.mozilla/firefox/bet365.default-release/user.js && \
+    echo 'user_pref("extensions.autoDisableScopes", 0);' >> /root/.mozilla/firefox/bet365.default-release/user.js && \
+    echo 'user_pref("extensions.enabledScopes", 15);' >> /root/.mozilla/firefox/bet365.default-release/user.js && \
+    echo 'user_pref("browser.shell.checkDefaultBrowser", false);' >> /root/.mozilla/firefox/bet365.default-release/user.js && \
+    echo 'user_pref("browser.startup.homepage_override.mstone", "ignore");' >> /root/.mozilla/firefox/bet365.default-release/user.js && \
+    echo 'user_pref("media.volume_scale", "0.0");' >> /root/.mozilla/firefox/bet365.default-release/user.js
+
+# Script de inicialização
+COPY docker/start-firefox.sh /opt/start-firefox.sh
+RUN chmod +x /opt/start-firefox.sh
+
+# Configuração do Supervisor
+COPY docker/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+
+# Portas: VNC (5900), noVNC web (6080)
+EXPOSE 5900 6080
+
+# Healthcheck
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s \
+    CMD curl -f http://localhost:6080/ || exit 1
+
+CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]

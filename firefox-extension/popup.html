@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Bet365 Observer</title>
+  <style>
+    body {
+      width: 280px;
+      padding: 16px;
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #1a1a2e;
+      color: #eee;
+      margin: 0;
+    }
+
+    h1 {
+      font-size: 16px;
+      margin: 0 0 16px 0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .status {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px;
+      background: #16213e;
+      border-radius: 8px;
+      margin-bottom: 12px;
+    }
+
+    .status-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #ef4444;
+    }
+
+    .status-dot.connected {
+      background: #22c55e;
+    }
+
+    .status-text {
+      font-size: 14px;
+    }
+
+    .info {
+      font-size: 12px;
+      color: #888;
+      margin-bottom: 12px;
+      line-height: 1.5;
+    }
+
+    .stats {
+      background: #16213e;
+      border-radius: 8px;
+      padding: 12px;
+    }
+
+    .stat-row {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 8px;
+    }
+
+    .stat-row:last-child {
+      margin-bottom: 0;
+    }
+
+    .stat-label {
+      color: #888;
+      font-size: 12px;
+    }
+
+    .stat-value {
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    .instructions {
+      margin-top: 12px;
+      padding: 12px;
+      background: #0f3460;
+      border-radius: 8px;
+      font-size: 12px;
+      line-height: 1.6;
+    }
+
+    .instructions h3 {
+      margin: 0 0 8px 0;
+      font-size: 13px;
+      color: #3b82f6;
+    }
+
+    .instructions ol {
+      margin: 0;
+      padding-left: 20px;
+    }
+
+    .instructions li {
+      margin-bottom: 4px;
+    }
+  </style>
+</head>
+<body>
+  <h1>
+    <span>Bet365 Observer</span>
+  </h1>
+
+  <div class="status">
+    <div class="status-dot" id="statusDot"></div>
+    <span class="status-text" id="statusText">Verificando...</span>
+  </div>
+
+  <div class="info">
+    Esta extensao captura dados do Aviator e envia para o Observer local.
+  </div>
+
+  <div class="stats">
+    <div class="stat-row">
+      <span class="stat-label">Rodadas capturadas</span>
+      <span class="stat-value" id="roundCount">-</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-label">Ultima rodada</span>
+      <span class="stat-value" id="lastRound">-</span>
+    </div>
+  </div>
+
+  <div class="instructions">
+    <h3>Como usar:</h3>
+    <ol>
+      <li>Inicie o Observer: <code>npm run observer</code></li>
+      <li>Abra o Bet365 e va ate o Aviator</li>
+      <li>A extensao conecta automaticamente</li>
+    </ol>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

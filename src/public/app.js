@@ -6,6 +6,7 @@ let houseProfitData = {};
 let advancedStats = {};
 let mlPrediction = null; // ML prediction state
 let currentLimit = 50;
+let currentPlatform = null; // null = all platforms, 'spinbetter', 'bet365'
 
 // ========== Conexão com Observer ==========
 let observerApiUrl = '';
@@ -484,7 +485,11 @@ function renderTable() {
  */
 async function fetchRounds() {
   try {
-    const response = await fetch(`${observerApiUrl}/api/rounds?limit=${currentLimit}`);
+    let url = `${observerApiUrl}/api/rounds?limit=${currentLimit}`;
+    if (currentPlatform) {
+      url += `&platform=${currentPlatform}`;
+    }
+    const response = await fetch(url);
     rounds = await response.json();
     renderRoundsGrid();
     renderTable();
@@ -501,7 +506,11 @@ async function fetchRounds() {
  */
 async function fetchStats() {
   try {
-    const response = await fetch(`${observerApiUrl}/api/stats`);
+    let url = `${observerApiUrl}/api/stats`;
+    if (currentPlatform) {
+      url += `?platform=${currentPlatform}`;
+    }
+    const response = await fetch(url);
     stats = await response.json();
     renderStats();
     renderDistribution();
@@ -1439,6 +1448,32 @@ function setupLimitButtons() {
   });
 }
 
+/**
+ * Configura botões de filtro de plataforma
+ */
+function setupPlatformButtons() {
+  document.querySelectorAll('.platform-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      document.querySelectorAll('.platform-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+
+      const platform = btn.dataset.platform;
+      currentPlatform = platform || null;
+
+      console.log('[Platform] Filtro alterado para:', currentPlatform || 'todas');
+
+      // Recarrega dados com novo filtro
+      await Promise.all([
+        fetchRounds(),
+        fetchStats(),
+        fetchHourlyAnalysis(),
+        fetchHouseProfit(),
+        fetchAdvancedStats()
+      ]);
+    });
+  });
+}
+
 // ========== Inicialização ==========
 
 async function init() {
@@ -1466,7 +1501,7 @@ async function init() {
     console.error('[Config] Erro ao buscar config, tentando conexão local...');
     // Fallback para conexão local (quando rodando tudo junto)
     observerApiUrl = '';
-    connectWebSocket('ws://localhost:3001');
+    connectWebSocket('ws://localhost:3010');
   }
 
   // Carrega dados iniciais
@@ -1480,6 +1515,7 @@ async function init() {
 
   // Configura botões
   setupLimitButtons();
+  setupPlatformButtons();
 
   // Configura simulador
   setupSimulatorEvents();

@@ -1,0 +1,39 @@
+# Dependências
+node_modules/
+.npm
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Ambiente local
+.env
+.env.local
+*.local
+
+# Dados de desenvolvimento (produção usa volume)
+data/*.sqlite
+data/archives/
+
+# Outros
+*.md
+!README.md
+docker/
+!docker/
+dashboard-solid/node_modules/
+ml_service/__pycache__/
+ml_service/venv/

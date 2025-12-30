@@ -6,6 +6,10 @@
   "type": "module",
   "scripts": {
     "observer": "node src/observer/index.js",
+    "observer:all": "node src/observer/index.js spinbetter bet365",
+    "observer:spinbetter": "node src/observer/index.js spinbetter",
+    "observer:bet365": "node src/observer/index.js bet365",
+    "firefox:debug": "./start-firefox-debug.sh",
     "dashboard": "node src/dashboard/index.js",
     "start": "node src/observer/index.js",
     "dev": "concurrently \"npm run observer\" \"npm run dashboard\""

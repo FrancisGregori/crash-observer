@@ -33,7 +33,10 @@
       "WebFetch(domain:gamscdn.com)",
       "Bash(timeout 60 node:*)",
       "Bash(node:*)",
-      "Bash(head:*)"
+      "Bash(head:*)",
+      "Bash(timeout 5 node:*)",
+      "Bash(defaults read:*)",
+      "Bash(ls:*)"
     ]
   }
 }

@@ -12,6 +12,9 @@ import { onNewRoundArrived } from './ml';
 // API base URL
 const API_BASE = '/api';
 
+// Platform filter type
+export type PlatformFilter = 'all' | 'spinbetter' | 'bet365';
+
 // Rounds store state
 interface RoundsStoreState {
   rounds: RoundData[];
@@ -21,6 +24,7 @@ interface RoundsStoreState {
   hourlyAnalysis: HourlyAnalysisData | null;
   advancedStats: AdvancedStatsData | null;
   currentLimit: number;
+  selectedPlatform: PlatformFilter;
   isLoading: boolean;
   error: string | null;
 }
@@ -33,6 +37,7 @@ const initialState: RoundsStoreState = {
   hourlyAnalysis: null,
   advancedStats: null,
   currentLimit: 50,
+  selectedPlatform: 'all',
   isLoading: false,
   error: null,
 };
@@ -42,6 +47,23 @@ const [state, setState] = createStore<RoundsStoreState>(initialState);
 
 // Export the store for reading
 export const roundsStore = state;
+
+// Platform-specific helpers (for components that need unfiltered platform data)
+export function getSpinbetterRounds(): RoundData[] {
+  return state.rounds.filter(r => !r.platform || r.platform === 'spinbetter');
+}
+
+export function getBet365Rounds(): RoundData[] {
+  return state.rounds.filter(r => r.platform === 'bet365');
+}
+
+export function getLastSpinbetterRound(): RoundData | undefined {
+  return state.rounds.find(r => !r.platform || r.platform === 'spinbetter');
+}
+
+export function getLastBet365Round(): RoundData | undefined {
+  return state.rounds.find(r => r.platform === 'bet365');
+}
 
 // Actions
 export function setRounds(rounds: RoundData[]) {
@@ -76,6 +98,10 @@ export function setCurrentLimit(limit: number) {
   setState('currentLimit', limit);
 }
 
+export function setSelectedPlatform(platform: PlatformFilter) {
+  setState('selectedPlatform', platform);
+}
+
 export function setLoading(loading: boolean) {
   setState('isLoading', loading);
 }
@@ -84,11 +110,24 @@ export function setError(error: string | null) {
   setState('error', error);
 }
 
+// Helper to build URL with platform filter
+function buildUrl(endpoint: string, params: Record<string, string | number> = {}): string {
+  const platform = state.selectedPlatform;
+  if (platform !== 'all') {
+    params.platform = platform;
+  }
+  const queryString = Object.entries(params)
+    .map(([k, v]) => `${k}=${encodeURIComponent(v)}`)
+    .join('&');
+  return queryString ? `${API_BASE}/${endpoint}?${queryString}` : `${API_BASE}/${endpoint}`;
+}
+
 // API fetch functions
 export async function fetchRounds(limit: number = 50) {
   try {
     setLoading(true);
-    const response = await fetch(`${API_BASE}/rounds?limit=${limit}`);
+    const url = buildUrl('rounds', { limit });
+    const response = await fetch(url);
     if (!response.ok) throw new Error('Failed to fetch rounds');
     const data = await response.json();
     setRounds(data);
@@ -102,7 +141,8 @@ export async function fetchRounds(limit: number = 50) {
 
 export async function fetchStats() {
   try {
-    const response = await fetch(`${API_BASE}/stats`);
+    const url = buildUrl('stats');
+    const response = await fetch(url);
     if (!response.ok) throw new Error('Failed to fetch stats');
     const data = await response.json();
     setStats(data);

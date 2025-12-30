@@ -19,7 +19,7 @@ export function initDatabase() {
   // Habilita WAL mode para melhor performance
   db.pragma('journal_mode = WAL');
 
-  // Cria a tabela de rodadas
+  // Cria a tabela de rodadas (estrutura base)
   db.exec(`
     CREATE TABLE IF NOT EXISTS rounds (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -34,17 +34,34 @@ export function initDatabase() {
     CREATE INDEX IF NOT EXISTS idx_rounds_multiplier ON rounds(multiplier);
   `);
 
+  // Migração: adiciona coluna platform se não existir
+  try {
+    db.exec(`ALTER TABLE rounds ADD COLUMN platform TEXT DEFAULT 'spinbetter'`);
+    console.log('[DB] Coluna platform adicionada à tabela rounds');
+  } catch (e) {
+    // Coluna já existe - ok
+  }
+
+  // Cria índice para platform (após garantir que a coluna existe)
+  try {
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_rounds_platform ON rounds(platform)`);
+  } catch (e) {
+    // Índice já existe - ok
+  }
+
   console.log('[DB] Banco de dados inicializado:', DB_PATH);
   return db;
 }
 
 /**
  * Insere uma nova rodada no banco de dados
+ * @param {Object} round - Dados da rodada
+ * @param {string} platform - Plataforma de origem ('spinbetter' | 'bet365')
  */
-export function insertRound(round) {
+export function insertRound(round, platform = 'spinbetter') {
   const stmt = db.prepare(`
-    INSERT INTO rounds (createdAt, betCount, totalBet, totalWin, multiplier)
-    VALUES (?, ?, ?, ?, ?)
+    INSERT INTO rounds (createdAt, betCount, totalBet, totalWin, multiplier, platform)
+    VALUES (?, ?, ?, ?, ?, ?)
   `);
 
   const result = stmt.run(
@@ -52,23 +69,103 @@ export function insertRound(round) {
     round.betCount,
     round.totalBet,
     round.totalWin,
-    round.multiplier
+    round.multiplier,
+    platform
   );
 
-  console.log(`[DB] Rodada #${result.lastInsertRowid} salva: ${round.multiplier}x`);
+  console.log(`[DB] [${platform.toUpperCase()}] Rodada #${result.lastInsertRowid} salva: ${round.multiplier}x`);
   return result.lastInsertRowid;
 }
 
 /**
  * Retorna as últimas N rodadas (ordenadas por data/hora)
+ * @param {number} limit - Limite de rodadas
+ * @param {string} platform - Filtro de plataforma (opcional: 'spinbetter', 'bet365', ou null para todas)
  */
-export function getLastRounds(limit = 100) {
-  const stmt = db.prepare(`
-    SELECT * FROM rounds
-    ORDER BY createdAt DESC
-    LIMIT ?
-  `);
-  return stmt.all(limit);
+export function getLastRounds(limit = 100, platform = null) {
+  let query = 'SELECT * FROM rounds';
+  const params = [];
+
+  if (platform) {
+    query += ' WHERE platform = ?';
+    params.push(platform);
+  }
+
+  query += ' ORDER BY createdAt DESC LIMIT ?';
+  params.push(limit);
+
+  const stmt = db.prepare(query);
+  return stmt.all(...params);
+}
+
+/**
+ * Sincroniza histórico de multiplicadores - adiciona rodadas faltantes
+ * @param {number[]} multipliers - Array de multiplicadores (mais recente primeiro)
+ * @param {string} platform - Plataforma ('bet365')
+ * @returns {object} - { added: number, skipped: number }
+ */
+export function syncHistoryMultipliers(multipliers, platform = 'bet365') {
+  if (!multipliers || multipliers.length === 0) {
+    return { added: 0, skipped: 0 };
+  }
+
+  // Pega as últimas rodadas da plataforma para comparar
+  const existingRounds = getLastRounds(multipliers.length * 2, platform);
+  const existingMultipliers = new Set(existingRounds.map(r => r.multiplier.toFixed(2)));
+
+  let added = 0;
+  let skipped = 0;
+
+  // Processa do mais antigo para o mais recente (inverte a ordem)
+  const reversedMultipliers = [...multipliers].reverse();
+
+  // Calcula timestamp base (agora - N segundos por rodada)
+  // Cada rodada do Aviator dura aproximadamente 8-15 segundos
+  const now = Date.now();
+  const roundDuration = 10000; // 10 segundos por rodada em média
+
+  for (let i = 0; i < reversedMultipliers.length; i++) {
+    const mult = reversedMultipliers[i];
+    const multStr = mult.toFixed(2);
+
+    // Verifica se já existe (comparação aproximada)
+    let exists = false;
+    for (const existing of existingMultipliers) {
+      if (Math.abs(parseFloat(existing) - mult) < 0.01) {
+        exists = true;
+        break;
+      }
+    }
+
+    if (exists) {
+      skipped++;
+      continue;
+    }
+
+    // Calcula timestamp aproximado
+    const timestamp = new Date(now - (reversedMultipliers.length - i) * roundDuration);
+
+    try {
+      insertRound({
+        createdAt: timestamp.toISOString(),
+        betCount: 0,
+        totalBet: 0,
+        totalWin: 0,
+        multiplier: mult
+      }, platform);
+
+      added++;
+      existingMultipliers.add(multStr);
+    } catch (err) {
+      console.error(`[DB] Erro ao sincronizar multiplicador ${mult}:`, err.message);
+    }
+  }
+
+  if (added > 0) {
+    console.log(`[DB] Sincronização: ${added} rodadas adicionadas, ${skipped} ignoradas`);
+  }
+
+  return { added, skipped };
 }
 
 /**
@@ -81,12 +178,16 @@ export function getAllRounds() {
 
 /**
  * Retorna estatísticas gerais
+ * @param {string|null} platform - Plataforma para filtrar (null = todas)
  */
-export function getStats() {
-  const totalRounds = db.prepare(`SELECT COUNT(*) as count FROM rounds`).get();
-  const avgMultiplier = db.prepare(`SELECT AVG(multiplier) as avg FROM rounds`).get();
-  const maxMultiplier = db.prepare(`SELECT MAX(multiplier) as max FROM rounds`).get();
-  const minMultiplier = db.prepare(`SELECT MIN(multiplier) as min FROM rounds`).get();
+export function getStats(platform = null) {
+  const whereClause = platform ? `WHERE platform = ?` : '';
+  const params = platform ? [platform] : [];
+
+  const totalRounds = db.prepare(`SELECT COUNT(*) as count FROM rounds ${whereClause}`).get(...params);
+  const avgMultiplier = db.prepare(`SELECT AVG(multiplier) as avg FROM rounds ${whereClause}`).get(...params);
+  const maxMultiplier = db.prepare(`SELECT MAX(multiplier) as max FROM rounds ${whereClause}`).get(...params);
+  const minMultiplier = db.prepare(`SELECT MIN(multiplier) as min FROM rounds ${whereClause}`).get(...params);
 
   // Distribuição de multiplicadores
   const distribution = db.prepare(`
@@ -100,6 +201,7 @@ export function getStats() {
       END as range,
       COUNT(*) as count
     FROM rounds
+    ${whereClause}
     GROUP BY range
     ORDER BY
       CASE range
@@ -109,7 +211,7 @@ export function getStats() {
         WHEN '5x - 10x' THEN 4
         ELSE 5
       END
-  `).all();
+  `).all(...params);
 
   // Estatísticas de apostas
   const bettingStats = db.prepare(`
@@ -120,22 +222,28 @@ export function getStats() {
       SUM(totalBet) as sumTotalBet,
       SUM(totalWin) as sumTotalWin
     FROM rounds
-  `).get();
+    ${whereClause}
+  `).get(...params);
 
   // Últimas 24 horas
+  const last24hWhere = platform
+    ? `WHERE createdAt >= datetime('now', '-24 hours') AND platform = ?`
+    : `WHERE createdAt >= datetime('now', '-24 hours')`;
   const last24h = db.prepare(`
     SELECT COUNT(*) as count, AVG(multiplier) as avg
     FROM rounds
-    WHERE createdAt >= datetime('now', '-24 hours')
-  `).get();
+    ${last24hWhere}
+  `).get(...params);
 
   // Função para calcular sequência abaixo de um limiar
   function getStreakBelow(threshold) {
+    const platformFilter = platform ? `WHERE platform = ?` : '';
     const result = db.prepare(`
       WITH ranked AS (
         SELECT multiplier,
                ROW_NUMBER() OVER (ORDER BY createdAt DESC) as rn
         FROM rounds
+        ${platformFilter}
       )
       SELECT COUNT(*) as streak
       FROM ranked
@@ -143,7 +251,7 @@ export function getStats() {
         (SELECT MIN(rn) - 1 FROM ranked WHERE multiplier >= ?),
         (SELECT MAX(rn) FROM ranked)
       ) AND multiplier < ?
-    `).get(threshold, threshold);
+    `).get(...(platform ? [platform, threshold, threshold] : [threshold, threshold]));
     return result?.streak || 0;
   }
 

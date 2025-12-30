@@ -20,16 +20,25 @@ const liveBettingLogs = [];
 app.use(cors());
 app.use(express.json());
 
+// Health check endpoint (para Docker)
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
 // ========== API REST ==========
 
 /**
  * GET /api/rounds
  * Retorna as últimas rodadas
+ * Query params:
+ *   - limit: número de rodadas (default 100)
+ *   - platform: 'spinbetter' | 'bet365' | null (todas)
  */
 app.get('/api/rounds', (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 100;
-    const rounds = getLastRounds(limit);
+    const platform = req.query.platform || null;
+    const rounds = getLastRounds(limit, platform);
     res.json(rounds);
   } catch (err) {
     console.error('[API] Erro ao buscar rodadas:', err);
@@ -54,10 +63,13 @@ app.get('/api/rounds/all', (req, res) => {
 /**
  * GET /api/stats
  * Retorna estatísticas gerais
+ * Query params:
+ *   - platform: 'spinbetter' | 'bet365' | null (todas)
  */
 app.get('/api/stats', (req, res) => {
   try {
-    const stats = getStats();
+    const platform = req.query.platform || null;
+    const stats = getStats(platform);
     res.json(stats);
   } catch (err) {
     console.error('[API] Erro ao buscar estatísticas:', err);
@@ -118,6 +130,38 @@ app.get('/api/advanced', (req, res) => {
   } catch (err) {
     console.error('[API] Erro ao buscar análise avançada:', err);
     res.status(500).json({ error: 'Erro ao buscar análise avançada' });
+  }
+});
+
+/**
+ * GET /api/platforms
+ * Retorna contagem de rodadas por plataforma e última rodada de cada
+ */
+app.get('/api/platforms', (req, res) => {
+  try {
+    // Pega as últimas 10000 rodadas para fazer a contagem
+    const rounds = getLastRounds(10000);
+
+    const counts = rounds.reduce((acc, r) => {
+      const platform = r.platform || 'spinbetter';
+      if (!acc[platform]) {
+        acc[platform] = { count: 0, lastRound: null };
+      }
+      acc[platform].count++;
+      // Primeira rodada encontrada é a mais recente (ordenado DESC)
+      if (!acc[platform].lastRound) {
+        acc[platform].lastRound = r;
+      }
+      return acc;
+    }, {});
+
+    res.json({
+      success: true,
+      platforms: counts
+    });
+  } catch (err) {
+    console.error('[API] Erro ao buscar plataformas:', err);
+    res.status(500).json({ error: 'Erro ao buscar plataformas' });
   }
 });
 

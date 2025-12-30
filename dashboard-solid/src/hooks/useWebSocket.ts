@@ -12,7 +12,7 @@ import { resolveBet as resolveSimulatorBet } from '../stores/simulator';
 import type { RoundData, MLPrediction } from '../types';
 
 // WebSocket URL - connects directly to observer WS port
-const WS_URL = `ws://${window.location.hostname}:3001`;
+const WS_URL = `ws://${window.location.hostname}:3010`;
 
 let ws: WebSocket | null = null;
 let reconnectTimeout: number | null = null;

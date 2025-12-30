@@ -1,0 +1,86 @@
+# Docker Compose para rodar na VPS
+#
+# Uso:
+#   docker-compose -f docker-compose.vps.yml up -d
+#
+# Acesso:
+#   - noVNC (navegador): http://SEU_IP:6080
+#   - VNC direto: SEU_IP:5900
+#   - Dashboard: http://SEU_IP:3001
+#
+
+version: '3.8'
+
+services:
+  # ===========================================
+  # Observer Node.js - Processa dados do jogo
+  # ===========================================
+  observer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: bet365-observer
+    restart: unless-stopped
+    ports:
+      - "3010:3010"   # WebSocket (extensão conecta aqui)
+      - "3001:3001"   # API/Dashboard
+    volumes:
+      - ./data:/app/data
+    environment:
+      - NODE_ENV=production
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - bet365-network
+
+  # ===========================================
+  # Firefox com Display Virtual + noVNC
+  # ===========================================
+  firefox:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.firefox
+    container_name: bet365-firefox
+    restart: unless-stopped
+    ports:
+      - "6080:6080"   # noVNC (acesso via navegador)
+      - "5900:5900"   # VNC direto (opcional)
+    environment:
+      - VNC_PASSWORD=${VNC_PASSWORD:-bet365observer}
+      - OBSERVER_HOST=observer
+      - OBSERVER_PORT=3010
+      - INITIAL_URL=https://casino.bet365.bet.br/play/AviatorNYX
+    volumes:
+      - firefox-profile:/root/.mozilla/firefox
+    depends_on:
+      - observer
+    networks:
+      - bet365-network
+
+  # ===========================================
+  # Dashboard SolidJS (opcional)
+  # ===========================================
+  # dashboard:
+  #   build:
+  #     context: ./dashboard-solid
+  #     dockerfile: Dockerfile
+  #   container_name: bet365-dashboard
+  #   restart: unless-stopped
+  #   ports:
+  #     - "5173:5173"
+  #   depends_on:
+  #     - observer
+  #   networks:
+  #     - bet365-network
+
+networks:
+  bet365-network:
+    driver: bridge
+
+volumes:
+  firefox-profile:
+    name: bet365-firefox-profile
