@@ -5,6 +5,13 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV DISPLAY=:99
 ENV VNC_PASSWORD=bet365observer
 
+# Adiciona PPA do Mozilla para Firefox real (não snap)
+RUN apt-get update && apt-get install -y software-properties-common && \
+    add-apt-repository -y ppa:mozillateam/ppa && \
+    echo 'Package: *' > /etc/apt/preferences.d/mozilla-firefox && \
+    echo 'Pin: release o=LP-PPA-mozillateam' >> /etc/apt/preferences.d/mozilla-firefox && \
+    echo 'Pin-Priority: 1001' >> /etc/apt/preferences.d/mozilla-firefox
+
 # Instala dependencias
 RUN apt-get update && apt-get install -y \
     firefox \
