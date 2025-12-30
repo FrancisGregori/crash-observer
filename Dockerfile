@@ -19,9 +19,8 @@ RUN npm ci --only=production
 
 # Copia o código
 COPY src/ ./src/
-COPY data/ ./data/ 2>/dev/null || mkdir -p ./data
 
-# Cria diretório de dados
+# Cria diretório de dados (será montado como volume)
 RUN mkdir -p /app/data
 
 # Porta do WebSocket e API
