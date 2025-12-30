@@ -60,14 +60,27 @@ RUN mkdir -p /root/.mozilla/firefox/bet365.default-release && \
     echo '[General]' >> /root/.mozilla/firefox/profiles.ini && \
     echo 'StartWithLastProfile=1' >> /root/.mozilla/firefox/profiles.ini
 
-# Configurações do Firefox para aceitar extensão não assinada
+# Configurações do Firefox para aceitar extensão não assinada + anti-detecção
 RUN mkdir -p /root/.mozilla/firefox/bet365.default-release && \
     echo 'user_pref("xpinstall.signatures.required", false);' > /root/.mozilla/firefox/bet365.default-release/user.js && \
     echo 'user_pref("extensions.autoDisableScopes", 0);' >> /root/.mozilla/firefox/bet365.default-release/user.js && \
     echo 'user_pref("extensions.enabledScopes", 15);' >> /root/.mozilla/firefox/bet365.default-release/user.js && \
     echo 'user_pref("browser.shell.checkDefaultBrowser", false);' >> /root/.mozilla/firefox/bet365.default-release/user.js && \
     echo 'user_pref("browser.startup.homepage_override.mstone", "ignore");' >> /root/.mozilla/firefox/bet365.default-release/user.js && \
-    echo 'user_pref("media.volume_scale", "0.0");' >> /root/.mozilla/firefox/bet365.default-release/user.js
+    echo 'user_pref("media.volume_scale", "0.0");' >> /root/.mozilla/firefox/bet365.default-release/user.js && \
+    # Anti-detecção Cloudflare \
+    echo 'user_pref("general.useragent.override", "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:120.0) Gecko/20100101 Firefox/120.0");' >> /root/.mozilla/firefox/bet365.default-release/user.js && \
+    echo 'user_pref("privacy.resistFingerprinting", false);' >> /root/.mozilla/firefox/bet365.default-release/user.js && \
+    echo 'user_pref("webgl.disabled", false);' >> /root/.mozilla/firefox/bet365.default-release/user.js && \
+    echo 'user_pref("media.peerconnection.enabled", true);' >> /root/.mozilla/firefox/bet365.default-release/user.js && \
+    echo 'user_pref("dom.webdriver.enabled", false);' >> /root/.mozilla/firefox/bet365.default-release/user.js && \
+    echo 'user_pref("general.platform.override", "Win32");' >> /root/.mozilla/firefox/bet365.default-release/user.js && \
+    echo 'user_pref("general.appversion.override", "5.0 (Windows)");' >> /root/.mozilla/firefox/bet365.default-release/user.js && \
+    echo 'user_pref("general.oscpu.override", "Windows NT 10.0; Win64; x64");' >> /root/.mozilla/firefox/bet365.default-release/user.js && \
+    echo 'user_pref("intl.accept_languages", "pt-BR,pt,en-US,en");' >> /root/.mozilla/firefox/bet365.default-release/user.js && \
+    echo 'user_pref("javascript.use_us_english_locale", false);' >> /root/.mozilla/firefox/bet365.default-release/user.js && \
+    echo 'user_pref("geo.enabled", true);' >> /root/.mozilla/firefox/bet365.default-release/user.js && \
+    echo 'user_pref("network.http.accept-encoding", "gzip, deflate, br");' >> /root/.mozilla/firefox/bet365.default-release/user.js
 
 # Script de inicialização
 COPY docker/start-firefox.sh /opt/start-firefox.sh
